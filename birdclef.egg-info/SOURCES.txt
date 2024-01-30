@@ -1,0 +1,6 @@
+README.md
+pyproject.toml
+birdclef.egg-info/PKG-INFO
+birdclef.egg-info/SOURCES.txt
+birdclef.egg-info/dependency_links.txt
+birdclef.egg-info/top_level.txt
