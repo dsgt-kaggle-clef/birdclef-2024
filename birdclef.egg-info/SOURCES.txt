@@ -1,5 +1,7 @@
 README.md
 pyproject.toml
+birdclef/__init__.py
+birdclef/utils.py
 birdclef.egg-info/PKG-INFO
 birdclef.egg-info/SOURCES.txt
 birdclef.egg-info/dependency_links.txt
