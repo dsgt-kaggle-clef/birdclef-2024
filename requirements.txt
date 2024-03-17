@@ -2,11 +2,19 @@ numpy
 pandas
 matplotlib
 pyspark >= 3.4.0
+pyarrow
 imageio
 scikit-learn
 torch
 torchvision
 transformers
+
+luigi
+google-api-python-client
+google-auth
+ffmpeg-python
+tqdm
+google-cloud-storage
 
 # developer tools
 jupyterlab
