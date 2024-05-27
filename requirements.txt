@@ -8,6 +8,8 @@ scikit-learn
 torch
 torchvision
 transformers
+tensorflow
+tensorflow_hub
 
 luigi
 google-api-python-client
