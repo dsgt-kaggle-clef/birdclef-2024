@@ -12,8 +12,7 @@ class PetastormDataModule(pl.LightningDataModule):
         spark,
         input_path,
         feature_col,
-        limit_species=None,
-        species_image_count=100,
+        label_col,
         batch_size=32,
         num_partitions=32,
         workers_count=os.cpu_count(),
@@ -26,8 +25,7 @@ class PetastormDataModule(pl.LightningDataModule):
         self.spark = spark
         self.input_path = input_path
         self.feature_col = feature_col
-        self.limit_species = limit_species
-        self.species_image_count = species_image_count
+        self.label_col = label_col
         self.batch_size = batch_size
         self.num_partitions = num_partitions
         self.workers_count = workers_count
@@ -40,53 +38,16 @@ class PetastormDataModule(pl.LightningDataModule):
         df = self.spark.read.parquet(self.input_path).cache()
         # Aggregate and filter species based on image count
         grouped_df = (
-            df.groupBy("name")
-            .agg(F.count("name").alias("n"))
+            df.groupBy(self.label_col)
+            .agg(F.count(self.label_col).alias(self.label_col))
             .filter(F.col("n") >= self.species_image_count)
-            .orderBy(F.col("n").desc(), F.col("name"))
+            .orderBy(F.col("n").desc(), F.col(self.label_col))
             .withColumn("index", F.monotonically_increasing_id())
         ).drop("n")
 
         # Use broadcast join to optimize smaller DataFrame joining
-        final_df = df.join(F.broadcast(grouped_df), "name", "inner")
+        final_df = df.join(grouped_df, self.label_col, "inner")
         return final_df
-
-    def _prepare_species_data(self):
-        """
-        Prepare species data by filtering, indexing, and joining.
-        :return: DataFrame of filtered and indexed species data
-        """
-        # Read the Parquet file into a DataFrame
-        df = self.spark.read.parquet(self.input_path).cache()
-
-        # Aggregate and filter species based on image count
-        grouped_df = (
-            df.groupBy("species_id")
-            .agg(F.count("species_id").alias("n"))
-            .filter(F.col("n") >= self.species_image_count)
-            .orderBy(F.col("n").desc(), F.col("species_id"))
-            .withColumn("index", F.monotonically_increasing_id())
-        ).drop("n")
-
-        # Use broadcast join to optimize smaller DataFrame joining
-        filtered_df = df.join(F.broadcast(grouped_df), "species_id", "inner")
-
-        # Optionally limit the number of species
-        if self.limit_species is not None:
-            limited_grouped_df = (
-                (
-                    grouped_df.orderBy(F.rand(seed=42))
-                    .limit(self.limit_species)
-                    .withColumn("new_index", F.monotonically_increasing_id())
-                )
-                .drop("index")
-                .withColumnRenamed("new_index", "index")
-            )
-
-            filtered_df = filtered_df.drop("index").join(
-                F.broadcast(limited_grouped_df), "species_id", "inner"
-            )
-        return filtered_df
 
     def _prepare_dataframe(self, df, partitions=32):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
@@ -111,6 +72,7 @@ class PetastormDataModule(pl.LightningDataModule):
         return train_df.cache(), valid_df.cache()
 
     def setup(self, stage=None):
+        """Setup dataframe for petastorm spark converter"""
         # Get prepared data
         # prepared_df = self._prepare_species_data().cache()
         prepared_df = self._prepare_data()
