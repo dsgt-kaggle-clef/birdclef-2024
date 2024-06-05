@@ -24,7 +24,7 @@ def temp_spark_data_path(spark, tmp_path_factory):
     df = spark.createDataFrame(data, schema=schema)
     temp_path = tmp_path_factory.mktemp("spark_data")
     temp_path_posix = temp_path.as_posix()
-    df.write.parquet("mnt/data/tmp/spark_temp_data")
+    df.write.mode("overwrite").parquet("mnt/data/tmp/spark_temp_data")
     return temp_path_posix
 
 
