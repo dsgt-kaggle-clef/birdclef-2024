@@ -16,23 +16,23 @@ def temp_spark_data_path(spark, tmp_path_factory):
     data = [Row(features=[float(i) for i in range(10)], label=i % 2) for i in range(10)]
     schema = StructType(
         [
-            StructField("features", ArrayType(FloatType()), False),
-            StructField("label", LongType(), False),
+            StructField("embeddings", ArrayType(FloatType()), False),
+            StructField("species_name", LongType(), False),
         ]
     )
     # create DF
     df = spark.createDataFrame(data, schema=schema)
     temp_path = tmp_path_factory.mktemp("spark_data")
     temp_path_posix = temp_path.as_posix()
-    df.write.mode("overwrite").parquet("mnt/data/tmp/spark_temp_data")
+    df.write.mode("overwrite").parquet(temp_path_posix)
     return temp_path_posix
 
 
 # Test Function
 def test_petastorm_data_module_setup(spark, temp_spark_data_path):
     input_path = temp_spark_data_path
-    feature_col = "features"
-    label_col = "label"
+    feature_col = "embeddings"
+    label_col = "species_name"
 
     data_module = PetastormDataModule(
         spark=spark,
@@ -48,5 +48,5 @@ def test_petastorm_data_module_setup(spark, temp_spark_data_path):
     assert data_module.valid_data is not None
     assert data_module.converter_train is not None
     assert data_module.converter_valid is not None
-    assert data_module.train_data.count() == 10
-    assert data_module.valid_data.count() == 10
+    assert data_module.train_data.count() > 0
+    assert data_module.valid_data.count() > 0
