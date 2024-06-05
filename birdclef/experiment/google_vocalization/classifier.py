@@ -56,7 +56,7 @@ class TrainClassifier(luigi.Task):
 
             # initialise the wandb logger and name your wandb project
             wandb_logger = WandbLogger(
-                project="plantclef-2024",
+                project="birdclef-2024",
                 name=Path(self.default_root_dir).name,
                 save_dir=self.default_root_dir,
             )

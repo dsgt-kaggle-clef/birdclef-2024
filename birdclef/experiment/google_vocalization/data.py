@@ -39,8 +39,7 @@ class PetastormDataModule(pl.LightningDataModule):
         # Aggregate and filter species based on image count
         grouped_df = (
             df.groupBy(self.label_col)
-            .agg(F.count(self.label_col).alias(self.label_col))
-            .filter(F.col("n") >= self.species_image_count)
+            .agg(F.count(self.label_col).alias("n"))
             .orderBy(F.col("n").desc(), F.col(self.label_col))
             .withColumn("index", F.monotonically_increasing_id())
         ).drop("n")
