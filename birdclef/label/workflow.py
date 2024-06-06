@@ -136,7 +136,7 @@ class Workflow(luigi.Task):
     model_path = luigi.Parameter()
     partitions = luigi.IntParameter(default=64)
 
-    def requires(self):
+    def run(self):
         metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
         species_list = metadata["primary_label"].unique()
 
@@ -154,7 +154,6 @@ class Workflow(luigi.Task):
             tasks.append(task)
         yield tasks
 
-    def run(self):
         with spark_resource(memory="16g") as spark:
             spark.read.parquet(
                 f"{self.remote_root}/{self.intermediate_path}/*.parquet"
