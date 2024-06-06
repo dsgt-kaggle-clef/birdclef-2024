@@ -10,15 +10,24 @@ torchvision
 transformers
 tensorflow
 tensorflow_hub
-
 luigi
 google-api-python-client
 google-auth
+google-cloud-storage
 ffmpeg-python
 tqdm
-google-cloud-storage
+gcsfs
+fsspec
+lightning
+torchmetrics
+umap-learn
+petastorm
+pyarrow==10.0.1
+pacmap
+wandb
 
 # developer tools
 jupyterlab
 black
 pre-commit
+pytest
