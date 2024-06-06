@@ -1,8 +1,6 @@
-import os
 from argparse import ArgumentParser
 from functools import partial
 from itertools import chain
-from pathlib import Path
 
 import luigi
 import numpy as np
@@ -16,6 +14,8 @@ from birdclef.utils import spark_resource
 
 
 class EmbedSpeciesAudio(luigi.Task):
+    """Embed all audio files for a species and save to a parquet file."""
+
     # used to pull audio data from GCS down locally
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
@@ -26,18 +26,17 @@ class EmbedSpeciesAudio(luigi.Task):
     output_path = luigi.Parameter()
     model_path = luigi.Parameter()
 
-    def requires(self):
-        return RsyncGCSFiles(
-            src_path=f"{self.remote_root}/{self.audio_path}",
-            dst_path=f"{self.local_root}/{self.audio_path}",
-        )
-
     def output(self):
         return maybe_gcs_target(
             f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
         )
 
     def run(self):
+        yield RsyncGCSFiles(
+            src_path=f"{self.remote_root}/{self.audio_path}",
+            dst_path=f"{self.local_root}/{self.audio_path}",
+        )
+
         metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
         model_labels_df = pd.read_csv(
             hub.resolve(self.model_path) + "/assets/label.csv"
@@ -45,9 +44,9 @@ class EmbedSpeciesAudio(luigi.Task):
         df = self.embed_species(
             metadata,
             self.species,
-            Path(self.output().path),
+            f"{self.remote_root}/{self.output_path}/{self.species}.parquet",
             model=hub.load(self.model_path),
-            model_labels=self.get_index_subset(metadata, model_labels_df),
+            model_indices=self.get_index_subset(metadata, model_labels_df),
         )
         print(df.head())
 
@@ -71,12 +70,13 @@ class EmbedSpeciesAudio(luigi.Task):
         self,
         metadata: pd.DataFrame,
         species: str,
-        out_path: Path,
+        out_path: str,
         model: hub.KerasLayer,
         model_indices: list,
     ) -> pd.DataFrame:
+        """Embed all audio files for a species and save to a parquet file."""
         tqdm.pandas()
-        files = metadata[metadata["primary_label"] == species]
+        files = metadata[metadata["primary_label"] == species].head()
         func = partial(self.embed_single, model=model, model_indices=model_indices)
         cols = zip(*files.progress_apply(func, axis=1))
         names, indices, embeddings, logits = [chain(*col) for col in cols]
@@ -88,12 +88,11 @@ class EmbedSpeciesAudio(luigi.Task):
                 "logits": logits,
             }
         )
-
-        out_path = out_path / f"{species}.parquet"
         df.to_parquet(out_path, index=False)
         return df
 
     def embed_single(self, row, model, model_indices):
+        """Embed a single audio file."""
         path = f"{self.local_root}/{self.audio_path}/{row.filename}"
         embeddings, logits = self.get_embeddings_and_logits(path, model, model_indices)
         n_chunks = embeddings.shape[0]
@@ -103,11 +102,12 @@ class EmbedSpeciesAudio(luigi.Task):
 
     def get_embeddings_and_logits(
         self,
-        path,
-        model,
-        model_indices,
-        window=5 * 32_000,
+        path: str,
+        model: hub.KerasLayer,
+        model_indices: list,
+        window: int = 5 * 32_000,
     ):
+        """Get embeddings and logits for a single audio file."""
         audio = torchaudio.load(path)[0].numpy()[0]
         embeddings = []
         logits = []
@@ -141,7 +141,7 @@ class Workflow(luigi.Task):
         species_list = metadata["primary_label"].unique()
 
         tasks = []
-        for species in species_list[:3]:
+        for species in species_list[:1]:
             task = EmbedSpeciesAudio(
                 remote_root=self.remote_root,
                 local_root=self.local_root,
@@ -155,7 +155,7 @@ class Workflow(luigi.Task):
         yield tasks
 
     def run(self):
-        with spark_resource(self.spark_workers, memory="16g") as spark:
+        with spark_resource(memory="16g") as spark:
             spark.read.parquet(
                 f"{self.remote_root}/{self.intermediate_path}/*.parquet"
             ).repartition(self.partitions).write.parquet(
@@ -205,13 +205,26 @@ def parse_args():
         type=str,
         default="services.us-central1-a.c.dsgt-clef-2024.internal",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     luigi.build(
-        [Workflow(**{k: v for k, v in vars(args).items() if k != "scheduler_host"})],
+        [
+            Workflow(
+                **{
+                    k: v
+                    for k, v in vars(args).items()
+                    if k not in ["scheduler_host", "workers"]
+                }
+            )
+        ],
         scheduler_host=args.scheduler_host,
-        workers=os.cpu_count() // 4,
+        workers=args.workers,
     )
