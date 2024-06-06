@@ -1,3 +1,4 @@
+import os
 from argparse import ArgumentParser
 from functools import partial
 from itertools import chain
@@ -11,19 +12,18 @@ import tensorflow_hub as hub
 import torchaudio
 from tqdm import tqdm
 
-from birdclef.tasks import maybe_gcs_target
+from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
+from birdclef.utils import spark_resource
 
 
 class EmbedSpeciesAudio(luigi.Task):
     metadata_path = luigi.Parameter()
     species = luigi.Parameter()
     output_path = luigi.Parameter()
-    model_path = luigi.Parameter(
-        default="https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4"
-    )
+    model_path = luigi.Parameter()
 
     def output(self):
-        maybe_gcs_target(Path(self.output_path) / f"{self.species}.parquet")
+        return maybe_gcs_target(f"{self.output_path}/{self.species}.parquet")
 
     def run(self):
         metadata = pd.read_csv(self.metadata_path)
@@ -113,20 +113,91 @@ class EmbedSpeciesAudio(luigi.Task):
 
 
 class Workflow(luigi.Task):
-    remote_root = luigi.Parameter(default="gs://dsgt-clef-geolifeclef-2024/data")
-    local_root = luigi.Parameter(default="/mnt/data/geolifeclef-2024/data")
+    output_name = luigi.Parameter()
+    remote_root = luigi.Parameter()
+    local_root = luigi.Parameter()
+    metadata_path = luigi.Parameter()
+    output_path = luigi.Parameter()
+    model_path = luigi.Parameter()
+    spark_workers = luigi.IntParameter()
+    partitions = luigi.IntParameter()
+
+    def requires(self):
+
+        # yield RsyncGCSFiles(
+        #     src_path=self.remote_root,
+        #     dst_path=self.local_root,
+        # )
+
+        metadata = pd.read_csv(self.metadata_path)
+        species_list = metadata["primary_label"].unique()
+
+        for species in species_list:
+            yield EmbedSpeciesAudio(
+                metadata_path=self.metadata_path,
+                species=species,
+                output_path=self.output_path,
+                model_path=self.model_path,
+            )
 
     def run(self):
-        pass
+        with spark_resource(self.spark_workers, memory="16g") as spark:
+            df = spark.read.parquet(f"{self.output_path}/*.parquet")
+            df.repartition(self.partitions).write.parquet(
+                f"{self.output_path}/{self.output_name}", mode="overwrite"
+            )
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--scheduler-host", default="localhost")
+    parser.add_argument("--output-name", type=str, required=True)
+    parser.add_argument(
+        "--remote-root",
+        type=str,
+        default="gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_audio",
+    )
+    parser.add_argument(
+        "--local-root",
+        type=str,
+        default="/home/acheung/birdclef-2024/data/birdclef-2024/train_audio",
+    )
+    parser.add_argument(
+        "--metadata-path",
+        type=str,
+        default="/home/acheung/birdclef-2024/data/birdclef-2024/train_metadata.csv",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default="/home/acheung/birdclef-2024/data/birdclef-2024/processed/google_embeddings",
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default="https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4",
+    )
+    parser.add_argument("--spark-workers", type=int, default=os.cpu_count())
+    parser.add_argument("--partitions", type=int, default=64)
+    parser.add_argument(
+        "--scheduler-host",
+        type=str,
+        default="services.us-central1-a.c.dsgt-clef-2024.internal",
+    )
     args = parser.parse_args()
 
     luigi.build(
-        [Workflow()],
+        [
+            Workflow(
+                output_name=args.output_name,
+                remote_root=args.remote_root,
+                local_root=args.local_root,
+                metadata_path=args.metadata_path,
+                output_path=args.output_path,
+                model_path=args.model_path,
+                spark_workers=args.spark_workers,
+                partitions=args.partitions,
+            )
+        ],
         scheduler_host=args.scheduler_host,
-        workers=1,
+        workers=os.cpu_count(),
     )
