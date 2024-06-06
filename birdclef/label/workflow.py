@@ -141,7 +141,7 @@ class Workflow(luigi.Task):
         species_list = metadata["primary_label"].unique()
 
         tasks = []
-        for species in species_list[:1]:
+        for species in species_list:
             task = EmbedSpeciesAudio(
                 remote_root=self.remote_root,
                 local_root=self.local_root,
