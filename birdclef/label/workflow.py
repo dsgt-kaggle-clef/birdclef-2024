@@ -1,13 +1,10 @@
-import os
 from argparse import ArgumentParser
 from functools import partial
 from itertools import chain
-from pathlib import Path
 
 import luigi
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 import tensorflow_hub as hub
 import torchaudio
 from tqdm import tqdm
@@ -17,25 +14,39 @@ from birdclef.utils import spark_resource
 
 
 class EmbedSpeciesAudio(luigi.Task):
+    """Embed all audio files for a species and save to a parquet file."""
+
+    # used to pull audio data from GCS down locally
+    remote_root = luigi.Parameter()
+    local_root = luigi.Parameter()
+
+    audio_path = luigi.Parameter()
     metadata_path = luigi.Parameter()
     species = luigi.Parameter()
     output_path = luigi.Parameter()
     model_path = luigi.Parameter()
 
     def output(self):
-        return maybe_gcs_target(f"{self.output_path}/{self.species}.parquet")
+        return maybe_gcs_target(
+            f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
+        )
 
     def run(self):
-        metadata = pd.read_csv(self.metadata_path)
+        yield RsyncGCSFiles(
+            src_path=f"{self.remote_root}/{self.audio_path}",
+            dst_path=f"{self.local_root}/{self.audio_path}",
+        )
+
+        metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
         model_labels_df = pd.read_csv(
             hub.resolve(self.model_path) + "/assets/label.csv"
         )
         df = self.embed_species(
             metadata,
             self.species,
-            Path(self.output().path),
+            f"{self.remote_root}/{self.output_path}/{self.species}.parquet",
             model=hub.load(self.model_path),
-            model_labels=self.get_index_subset(metadata, model_labels_df),
+            model_indices=self.get_index_subset(metadata, model_labels_df),
         )
         print(df.head())
 
@@ -59,10 +70,11 @@ class EmbedSpeciesAudio(luigi.Task):
         self,
         metadata: pd.DataFrame,
         species: str,
-        out_path: Path,
+        out_path: str,
         model: hub.KerasLayer,
         model_indices: list,
     ) -> pd.DataFrame:
+        """Embed all audio files for a species and save to a parquet file."""
         tqdm.pandas()
         files = metadata[metadata["primary_label"] == species]
         func = partial(self.embed_single, model=model, model_indices=model_indices)
@@ -76,26 +88,26 @@ class EmbedSpeciesAudio(luigi.Task):
                 "logits": logits,
             }
         )
-
-        out_path = out_path / f"{species}.parquet"
         df.to_parquet(out_path, index=False)
         return df
 
     def embed_single(self, row, model, model_indices):
-        path = row["filename"]
+        """Embed a single audio file."""
+        path = f"{self.local_root}/{self.audio_path}/{row.filename}"
         embeddings, logits = self.get_embeddings_and_logits(path, model, model_indices)
         n_chunks = embeddings.shape[0]
         indices = range(n_chunks)
-        names = [path.split("/")[1]] * n_chunks
+        names = [row.filename] * n_chunks
         return names, indices, list(embeddings), list(logits)
 
     def get_embeddings_and_logits(
         self,
-        path,
-        model,
-        model_indices,
-        window=5 * 32_000,
+        path: str,
+        model: hub.KerasLayer,
+        model_indices: list,
+        window: int = 5 * 32_000,
     ):
+        """Get embeddings and logits for a single audio file."""
         audio = torchaudio.load(path)[0].numpy()[0]
         embeddings = []
         logits = []
@@ -113,91 +125,106 @@ class EmbedSpeciesAudio(luigi.Task):
 
 
 class Workflow(luigi.Task):
-    output_name = luigi.Parameter()
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
+
+    audio_path = luigi.Parameter()
     metadata_path = luigi.Parameter()
+    intermediate_path = luigi.Parameter()
     output_path = luigi.Parameter()
+
     model_path = luigi.Parameter()
-    spark_workers = luigi.IntParameter()
-    partitions = luigi.IntParameter()
+    partitions = luigi.IntParameter(default=64)
 
     def requires(self):
-
-        # yield RsyncGCSFiles(
-        #     src_path=self.remote_root,
-        #     dst_path=self.local_root,
-        # )
-
-        metadata = pd.read_csv(self.metadata_path)
+        metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
         species_list = metadata["primary_label"].unique()
 
-        for species in species_list:
-            yield EmbedSpeciesAudio(
+        tasks = []
+        for species in species_list[:1]:
+            task = EmbedSpeciesAudio(
+                remote_root=self.remote_root,
+                local_root=self.local_root,
+                audio_path=self.audio_path,
                 metadata_path=self.metadata_path,
                 species=species,
-                output_path=self.output_path,
+                output_path=self.intermediate_path,
                 model_path=self.model_path,
             )
+            tasks.append(task)
+        yield tasks
 
     def run(self):
-        with spark_resource(self.spark_workers, memory="16g") as spark:
-            df = spark.read.parquet(f"{self.output_path}/*.parquet")
-            df.repartition(self.partitions).write.parquet(
-                f"{self.output_path}/{self.output_name}", mode="overwrite"
+        with spark_resource(memory="16g") as spark:
+            spark.read.parquet(
+                f"{self.remote_root}/{self.intermediate_path}/*.parquet"
+            ).repartition(self.partitions).write.parquet(
+                f"{self.remote_root}/{self.output_path}", mode="overwrite"
             )
 
 
-if __name__ == "__main__":
+def parse_args():
     parser = ArgumentParser()
-    parser.add_argument("--output-name", type=str, required=True)
     parser.add_argument(
         "--remote-root",
         type=str,
-        default="gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_audio",
+        default="gs://dsgt-clef-birdclef-2024/data",
     )
     parser.add_argument(
         "--local-root",
         type=str,
-        default="/home/acheung/birdclef-2024/data/birdclef-2024/train_audio",
+        default="/mnt/data",
+    )
+    parser.add_argument(
+        "--audio-path",
+        type=str,
+        default="raw/birdclef-2024/train_audio",
     )
     parser.add_argument(
         "--metadata-path",
         type=str,
-        default="/home/acheung/birdclef-2024/data/birdclef-2024/train_metadata.csv",
+        default="raw/birdclef-2024/train_metadata.csv",
+    )
+    parser.add_argument(
+        "--intermediate-path",
+        type=str,
+        default="intermediate/google_embeddings/v1",
     )
     parser.add_argument(
         "--output-path",
         type=str,
-        default="/home/acheung/birdclef-2024/data/birdclef-2024/processed/google_embeddings",
+        default="processed/google_embeddings/v1",
     )
     parser.add_argument(
         "--model-path",
         type=str,
         default="https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4",
     )
-    parser.add_argument("--spark-workers", type=int, default=os.cpu_count())
-    parser.add_argument("--partitions", type=int, default=64)
     parser.add_argument(
         "--scheduler-host",
         type=str,
         default="services.us-central1-a.c.dsgt-clef-2024.internal",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+    )
+    return parser.parse_args()
 
+
+if __name__ == "__main__":
+    args = parse_args()
     luigi.build(
         [
             Workflow(
-                output_name=args.output_name,
-                remote_root=args.remote_root,
-                local_root=args.local_root,
-                metadata_path=args.metadata_path,
-                output_path=args.output_path,
-                model_path=args.model_path,
-                spark_workers=args.spark_workers,
-                partitions=args.partitions,
+                **{
+                    k: v
+                    for k, v in vars(args).items()
+                    if k not in ["scheduler_host", "workers"]
+                }
             )
         ],
         scheduler_host=args.scheduler_host,
-        workers=os.cpu_count(),
+        workers=args.workers,
     )

@@ -1,6 +1,8 @@
 import os
 import sys
+import time
 from contextlib import contextmanager
+from pathlib import Path
 
 from pyspark.sql import SparkSession
 
@@ -8,18 +10,27 @@ os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
 
-def get_spark(cores=4, memory="8g", local_dir="/mnt/data/tmp", **kwargs):
+def get_spark(
+    cores=os.cpu_count(),
+    memory=os.environ.get("PYSPARK_DRIVER_MEMORY", "8g"),
+    executor_memory=os.environ.get("PYSPARK_EXECUTOR_MEMORY", "1g"),
+    local_dir="/mnt/data/tmp",
+    app_name="birdclef",
+    **kwargs,
+):
     """Get a spark session for a single driver."""
+    local_dir = f"{local_dir}/{int(time.time())}"
+    Path(local_dir).mkdir(parents=True, exist_ok=True)
     builder = (
         SparkSession.builder.config("spark.driver.memory", memory)
-        .config("spark.driver.cores", cores)
+        .config("spark.executor.memory", executor_memory)
         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-        .config("spark.driver.maxResultSize", "4g")
+        .config("spark.driver.maxResultSize", "8g")
         .config("spark.local.dir", local_dir)
     )
     for k, v in kwargs.items():
         builder = builder.config(k, v)
-    return builder.getOrCreate()
+    return builder.appName(app_name).master(f"local[{cores}]").getOrCreate()
 
 
 @contextmanager
