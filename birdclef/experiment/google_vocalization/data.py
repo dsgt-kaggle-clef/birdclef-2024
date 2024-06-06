@@ -36,23 +36,23 @@ class PetastormDataModule(pl.LightningDataModule):
         :return: DataFrame of filtered and indexed species data
         """
         df = self.spark.read.parquet(self.input_path).cache()
-        # Aggregate and filter species based on image count
-        grouped_df = (
-            df.groupBy(self.label_col)
-            .agg(F.count(self.label_col).alias("n"))
-            .orderBy(F.col("n").desc(), F.col(self.label_col))
-            .withColumn("index", F.monotonically_increasing_id())
-        ).drop("n")
+        # # Aggregate and filter species based on image count
+        # grouped_df = (
+        #     df.groupBy(self.label_col)
+        #     .agg(F.count(self.label_col).alias("n"))
+        #     .orderBy(F.col("n").desc(), F.col(self.label_col))
+        #     .withColumn("index", F.monotonically_increasing_id())
+        # ).drop("n")
 
-        # Use broadcast join to optimize smaller DataFrame joining
-        final_df = df.join(grouped_df, self.label_col, "inner")
-        return final_df
+        # # Use broadcast join to optimize smaller DataFrame joining
+        # final_df = df.join(grouped_df, self.label_col, "inner")
+        return df
 
     def _prepare_dataframe(self, df, partitions=32):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
         return (
             df.withColumnRenamed(self.feature_col, "features")
-            .withColumnRenamed("index", "label")
+            .withColumnRenamed(self.label_col, "label")
             .select(
                 F.col("features").cast("array<float>").alias("features"),
                 F.col("label").cast("long").alias("label"),
