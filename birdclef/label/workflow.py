@@ -76,7 +76,7 @@ class EmbedSpeciesAudio(luigi.Task):
     ) -> pd.DataFrame:
         """Embed all audio files for a species and save to a parquet file."""
         tqdm.pandas()
-        files = metadata[metadata["primary_label"] == species].head()
+        files = metadata[metadata["primary_label"] == species]
         func = partial(self.embed_single, model=model, model_indices=model_indices)
         cols = zip(*files.progress_apply(func, axis=1))
         names, indices, embeddings, logits = [chain(*col) for col in cols]
@@ -97,7 +97,7 @@ class EmbedSpeciesAudio(luigi.Task):
         embeddings, logits = self.get_embeddings_and_logits(path, model, model_indices)
         n_chunks = embeddings.shape[0]
         indices = range(n_chunks)
-        names = [path.split("/")[1]] * n_chunks
+        names = [row.filename] * n_chunks
         return names, indices, list(embeddings), list(logits)
 
     def get_embeddings_and_logits(
