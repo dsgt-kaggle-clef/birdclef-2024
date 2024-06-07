@@ -5,6 +5,7 @@ authors = [{ name = "Anthony Miyaguchi", email = "acmiyaguchi@gatech.edu" }]
 description = "DS@GT BirdCLEF helper package"
 readme = "README.md"
 requires-python = ">=3.8"
+dynamic = ["dependencies"]
 
 [project.urls]
 Homepage = "https://github.com/dsgt-kaggle-clef/birdclef-2024"
