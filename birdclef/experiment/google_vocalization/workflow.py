@@ -247,7 +247,7 @@ class Workflow(luigi.Task):
                 loss = loss_params[loss_name]
                 yield TrainClassifier(
                     input_path=self.output_path,
-                    default_root_dir=f"{self.default_root_dir}-{model_name}-{loss_name}",
+                    default_root_dir=f"{self.default_root_dir}-twolayer-{loss_name}-hidden{hidden_layer_size}",
                     label_col=label_col,
                     feature_col=feature_col,
                     loss=loss,
