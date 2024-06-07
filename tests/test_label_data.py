@@ -4,7 +4,10 @@ import pytest
 import torch
 import torchaudio
 
-from birdclef.label.data import GoogleVocalizationSoundscapeDataset
+from birdclef.label.data import (
+    GoogleVocalizationSoundscapeDataModule,
+    GoogleVocalizationSoundscapeDataset,
+)
 
 
 @pytest.fixture
@@ -54,3 +57,18 @@ def test_google_vocalization_soundscape_dataset(metadata_path, soundscape_path):
     assert row.keys() == {"row_id", "embedding", "logits"}
     assert row["embedding"].shape == (1280,)
     assert row["logits"].shape == (1,)
+
+
+def test_google_vocalization_soundscape_data_module(metadata_path, soundscape_path):
+    data_module = GoogleVocalizationSoundscapeDataModule(
+        soundscape_path,
+        metadata_path,
+        batch_size=4,
+    )
+    data_module.setup()
+    # check that our batch size is correct
+    batch = next(data_module.predict_dataloader())
+    assert batch.keys() == {"row_id", "embedding", "logits", "prediction"}
+    assert batch["embedding"].shape == (4, 1280)
+    assert batch["logits"].shape == (4, 1)
+    assert batch["prediction"].shape == (4, 1)
