@@ -29,7 +29,7 @@ class EmbedSpeciesAudio(luigi.Task):
     def run(self):
         yield RsyncGCSFiles(
             src_path=f"{self.remote_root}/{self.audio_path}/{self.species}",
-            dst_path=f"{self.local_root}/{self.audio_path/{self.species}",
+            dst_path=f"{self.local_root}/{self.audio_path}/{self.species}",
         )
 
         gvi = GoogleVocalizationInference(
@@ -38,7 +38,7 @@ class EmbedSpeciesAudio(luigi.Task):
         )
         out_path = f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
         df = gvi.predict_species_df(
-            self.local_root,
+            f"{self.local_root}/{self.audio_path}",
             self.species,
             out_path,
         )
