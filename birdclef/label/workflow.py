@@ -1,14 +1,9 @@
 from argparse import ArgumentParser
-from functools import partial
-from itertools import chain
 
 import luigi
-import numpy as np
 import pandas as pd
-import tensorflow_hub as hub
-import torchaudio
-from tqdm import tqdm
 
+from birdclef.label.inference import GoogleVocalizationInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
 from birdclef.utils import spark_resource
 
@@ -33,95 +28,21 @@ class EmbedSpeciesAudio(luigi.Task):
 
     def run(self):
         yield RsyncGCSFiles(
-            src_path=f"{self.remote_root}/{self.audio_path}",
-            dst_path=f"{self.local_root}/{self.audio_path}",
+            src_path=f"{self.remote_root}/{self.audio_path}/{self.species}",
+            dst_path=f"{self.local_root}/{self.audio_path/{self.species}",
         )
 
-        metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
-        model_labels_df = pd.read_csv(
-            hub.resolve(self.model_path) + "/assets/label.csv"
+        gvi = GoogleVocalizationInference(
+            metadata_path=f"{self.remote_root}/{self.metadata_path}",
+            model_path=self.model_path,
         )
-        df = self.embed_species(
-            metadata,
+        out_path = f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
+        df = gvi.predict_species_df(
+            self.local_root,
             self.species,
-            f"{self.remote_root}/{self.output_path}/{self.species}.parquet",
-            model=hub.load(self.model_path),
-            model_indices=self.get_index_subset(metadata, model_labels_df),
+            out_path,
         )
         print(df.head())
-
-    def get_index_subset(
-        self, metadata: pd.DataFrame, model_labels: pd.DataFrame
-    ) -> list:
-        """Get the subset of labels that are in the model.
-
-        We use the species names from the metadata to get the subset of labels that are in the model.
-        """
-        index_to_label = sorted(metadata.primary_label.unique())
-        model_labels = {v: k for k, v in enumerate(model_labels.ebird2021)}
-        return sorted(
-            [
-                model_labels[label] if label in model_labels else -1
-                for label in index_to_label
-            ]
-        )
-
-    def embed_species(
-        self,
-        metadata: pd.DataFrame,
-        species: str,
-        out_path: str,
-        model: hub.KerasLayer,
-        model_indices: list,
-    ) -> pd.DataFrame:
-        """Embed all audio files for a species and save to a parquet file."""
-        tqdm.pandas()
-        files = metadata[metadata["primary_label"] == species]
-        func = partial(self.embed_single, model=model, model_indices=model_indices)
-        cols = zip(*files.progress_apply(func, axis=1))
-        names, indices, embeddings, logits = [chain(*col) for col in cols]
-        df = pd.DataFrame(
-            {
-                "name": names,
-                "chunk_5s": indices,
-                "embedding": embeddings,
-                "logits": logits,
-            }
-        )
-        df.to_parquet(out_path, index=False)
-        return df
-
-    def embed_single(self, row, model, model_indices):
-        """Embed a single audio file."""
-        path = f"{self.local_root}/{self.audio_path}/{row.filename}"
-        embeddings, logits = self.get_embeddings_and_logits(path, model, model_indices)
-        n_chunks = embeddings.shape[0]
-        indices = range(n_chunks)
-        names = [row.filename] * n_chunks
-        return names, indices, list(embeddings), list(logits)
-
-    def get_embeddings_and_logits(
-        self,
-        path: str,
-        model: hub.KerasLayer,
-        model_indices: list,
-        window: int = 5 * 32_000,
-    ):
-        """Get embeddings and logits for a single audio file."""
-        audio = torchaudio.load(path)[0].numpy()[0]
-        embeddings = []
-        logits = []
-        for i in range(0, len(audio), window):
-            clip = audio[i : i + window]
-            if len(clip) < window:
-                clip = np.concatenate([clip, np.zeros(window - len(clip))])
-            result = model.infer_tf(clip[None, :])
-            embeddings.append(result[1][0].numpy())
-            clip_logits = np.concatenate([result[0].numpy(), -np.inf], axis=None)
-            logits.append(clip_logits[model_indices])
-        embeddings = np.stack(embeddings)
-        logits = np.stack(logits)
-        return embeddings, logits
 
 
 class Workflow(luigi.Task):
