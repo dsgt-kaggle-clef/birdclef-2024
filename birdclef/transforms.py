@@ -88,7 +88,7 @@ class TransformEmbedding(
         """
         return 1 / (1 + F.exp(-F.col(x)))
 
-    def _transform(self, df, k: int = 1.4826):
+    def _transform(self, df):
         exploded = (
             df.select(
                 F.concat_ws("_", "name", "chunk_5s").alias("id"),
@@ -100,26 +100,16 @@ class TransformEmbedding(
             .select("id", "exploded.*")
             .withColumn("sigmoid", self.sigmoid_udf("logits"))
         ).cache()
-        # median absolute deviation of the sigmoid column
-        median = exploded.approxQuantile("sigmoid", [0.5], 0.001)[0]
-        mad = (
-            exploded.withColumn(
-                "diff", F.abs(F.col("sigmoid") - median)
-            ).approxQuantile("diff", [0.5], 0.001)[0]
-            * k
-        )
-        print(median, mad)
-        scored = exploded.withColumn("score", (F.col("sigmoid") - median) / mad).cache()
-        scored.withColumn("keep", F.col("score") > 3).groupBy("keep").count().show()
-        # predictions with sigmoid > 0.5
-        predictions = (
-            scored.where("sigmoid > 0.5")
+        # get create column of an array of sigmoid logits grouped by id
+        grouped_df = (
+            exploded.orderBy("id", "species")
             .groupBy("id")
-            .agg(F.collect_list("species").alias("predicted"))
+            .agg(F.collect_list(F.col("sigmoid")).alias("sigmoid_logits"))
         )
-        # rows without predictions out of the total
-        scored.select("id").distinct().join(
-            predictions.select("id"), on="id", how="anti"
-        ).count(), scored.select("id").distinct().count()
-
-        return scored
+        # get embeddings
+        df_id = df.select(
+            F.concat_ws("_", "name", "chunk_5s").alias("id"), self.getInputCol()
+        )
+        final_df = grouped_df.join(df_id, on="id", how="inner")
+        final_df.withColumnRenamed(self.getInputCol(), self.getOutputCol())
+        return final_df

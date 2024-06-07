@@ -65,7 +65,6 @@ class ProcessBase(luigi.Task):
             df = spark.read.parquet(self.input_path)
 
             model = self.pipeline().fit(df)
-            model.write().overwrite().save(f"{self.output_path}/model")
             transformed = self.transform(model, df, self.feature_columns)
 
             if self.sample_id is None:
@@ -83,11 +82,13 @@ class ProcessEmbeddings(ProcessBase):
 
     @property
     def feature_columns(self) -> list:
-        return ["dino_embedding"]
+        return ["sigmoid_logits"]
 
     def pipeline(self):
-        dino = TransformEmbedding(input_col="embedding", output_col="bird_embedding")
-        return Pipeline(stages=[dino, SQLTransformer(statement=self.sql_statement)])
+        transform = TransformEmbedding(input_col="embedding", output_col="embedding")
+        return Pipeline(
+            stages=[transform, SQLTransformer(statement=self.sql_statement)]
+        )
 
 
 class Workflow(luigi.Task):
@@ -97,9 +98,9 @@ class Workflow(luigi.Task):
 
     def run(self):
         # training workflow parameters
-        train_model = True
-        sample_col = "species"
-        sql_statement = "SELECT species, embedding FROM __THIS__"
+        train_model = False
+        sample_col = "sigmoid_logits"
+        sql_statement = "SELECT id, sigmoid_logits, embedding FROM __THIS__"
         # process bird embeddings
         yield [
             ProcessEmbeddings(
@@ -116,7 +117,7 @@ class Workflow(luigi.Task):
         # train classifier
         if train_model:
             input_path = self.input_path
-            feature_col, label_col = "embedding", "name"
+            feature_col, label_col = "embedding", "sigmoid_logits"
             final_default_dir = self.default_root_dir
             two_layer = False
             # train model
@@ -146,7 +147,7 @@ def parse_args():
     parser.add_argument(
         "--output-name-path",
         type=str,
-        default="data/processed/birdclef-2024-train-embedding",
+        default="data/processed/birdclef-2024-train-google-embedding",
         help="GCS path for output Parquet files",
     )
     parser.add_argument(
