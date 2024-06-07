@@ -7,6 +7,8 @@ import tensorflow_hub as hub
 import torchaudio
 from tqdm import tqdm
 
+from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
+
 
 class GoogleVocalizationInference:
     """Class to perform inference on audio files using a Google Vocalization model."""
@@ -14,7 +16,7 @@ class GoogleVocalizationInference:
     def __init__(
         self,
         metadata_path: str,
-        model_path: str = "https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4",
+        model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
     ):
         self.model = hub.load(model_path)
         self.metadata = pd.read_csv(metadata_path)
