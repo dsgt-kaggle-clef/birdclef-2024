@@ -153,7 +153,7 @@ def parse_args():
     parser.add_argument(
         "--model-dir-path",
         type=str,
-        default="models/torch-petastorm-v1",
+        default="models/torch-v1-google",
         help="Default root directory for storing the pytorch classifier runs",
     )
     parser.add_argument(
