@@ -6,6 +6,8 @@ import tensorflow_hub as hub
 import torchaudio
 from tqdm import tqdm
 
+from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
+
 
 class Inference:
     """Class to perform inference on audio files."""

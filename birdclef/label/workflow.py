@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 import luigi
 import pandas as pd
 
+from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
 from birdclef.label.encodec.inference import EncodecInference
 from birdclef.label.google_vocalization.inference import GoogleVocalizationInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
@@ -120,7 +121,7 @@ def parse_args():
         "metadata-path": "raw/birdclef-2024/train_metadata.csv",
         "intermediate-path": f"intermediate/{default_out_folder}/v1",
         "output-path": f"processed/{default_out_folder}/v1",
-        "google-model-path": "https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4",
+        "google-model-path": DEFAULT_VOCALIZATION_MODEL_PATH,
         "encodec-chunk-size": 1,
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
         "workers": 2,
