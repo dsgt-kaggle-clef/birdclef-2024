@@ -64,4 +64,4 @@ class GoogleVocalizationInference(Inference):
             embeddings.append(result[1][0].numpy())
             clip_logits = np.concatenate([result[0].numpy(), -np.inf], axis=None)
             logits.append(clip_logits[self.model_indices])
-        return embeddings, logits    
+        return embeddings, logits

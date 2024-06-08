@@ -36,7 +36,7 @@ class EncodecInference(Inference):
         audio, sr = torchaudio.load(path)
         audio = convert_audio(audio, sr, self.model.sample_rate, self.model.channels)
         audio = audio.unsqueeze(0)
-        
+
         true_chunk_size = chunk_size * model.sample_rate
         chunks = torch.split(audio, true_chunk_size, dim=-1)
         last_padded = F.pad(chunks[-1], (0, true_chunk_size - chunks[-1].shape[-1]))

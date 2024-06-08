@@ -2,8 +2,6 @@ from functools import partial
 
 import numpy as np
 import pandas as pd
-import tensorflow_hub as hub
-import torchaudio
 from tqdm import tqdm
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
@@ -22,7 +20,7 @@ class Inference:
         :param window: The size of the window to split the audio into.
         """
         raise NotImplementedError
-    
+
     def predict_df(self, root, suffix) -> pd.DataFrame:
         """Embed a single audio file.
 
@@ -61,4 +59,3 @@ class Inference:
         df = pd.concat(dfs)
         df.to_parquet(out_path, index=False)
         return df
-    

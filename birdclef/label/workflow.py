@@ -12,7 +12,7 @@ from birdclef.utils import spark_resource
 
 class EmbedSpeciesAudio(luigi.Task):
     """Embed all audio files for a species and save to a parquet file."""
-    
+
     model = luigi.Parameter()
 
     # used to pull audio data from GCS down locally
@@ -23,9 +23,9 @@ class EmbedSpeciesAudio(luigi.Task):
     metadata_path = luigi.Parameter()
     species = luigi.Parameter()
     output_path = luigi.Parameter()
-    
+
     google_model_path = luigi.Parameter()
-    encodec_chunk_size = luigi.IntParameter()    
+    encodec_chunk_size = luigi.IntParameter()
 
     def output(self):
         return maybe_gcs_target(
@@ -46,7 +46,7 @@ class EmbedSpeciesAudio(luigi.Task):
             out_path,
         )
         print(df.head())
-        
+
     def get_inference(self):
         metadata_path = f"{self.remote_root}/{self.metadata_path}"
         if self.model == "google":
@@ -61,9 +61,10 @@ class EmbedSpeciesAudio(luigi.Task):
             )
         raise ValueError(f"Invalid model: {self.model}")
 
+
 class Workflow(luigi.Task):
     model = luigi.Parameter()
-    
+
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
 
@@ -73,7 +74,7 @@ class Workflow(luigi.Task):
     output_path = luigi.Parameter()
 
     google_model_path = luigi.Parameter()
-    encodec_chunk_size = luigi.IntParameter()  
+    encodec_chunk_size = luigi.IntParameter()
     partitions = luigi.IntParameter(default=64)
 
     def run(self):
@@ -112,8 +113,10 @@ def parse_args():
         choices=["google", "encodec"],
     )
     args = parser.parse_args()
-    
-    default_out_folder = "google_embeddings" if args.model == "google" else "encodec_embeddings"
+
+    default_out_folder = (
+        "google_embeddings" if args.model == "google" else "encodec_embeddings"
+    )
     defaults = {
         "remote-root": "gs://dsgt-clef-birdclef-2024/data",
         "local-root": "/mnt/data",
@@ -126,10 +129,10 @@ def parse_args():
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
         "workers": 2,
     }
-    
+
     for arg, default in defaults.items():
         parser.add_argument(f"--{arg}", type=type(default), default=default)
-    
+
     return parser.parse_args()
 
 
