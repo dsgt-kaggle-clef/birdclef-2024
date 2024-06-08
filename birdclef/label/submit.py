@@ -1,6 +1,6 @@
 import pandas as pd
 
-from birdclef.config import SPECIES
+from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
 
 from .data import GoogleVocalizationSoundscapeDataModule
 
@@ -8,8 +8,8 @@ from .data import GoogleVocalizationSoundscapeDataModule
 def make_submission(
     soundscape_path: str,
     metadata_path: str,
-    model_path: str,
     output_csv_path: str,
+    model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
 ):
     dm = GoogleVocalizationSoundscapeDataModule(
         soundscape_path=soundscape_path,
@@ -23,7 +23,8 @@ def make_submission(
     for batch in predictions:
         for row_id, prediction in zip(batch["row_id"], batch["prediction"]):
             predictions = zip(SPECIES, prediction.numpy().tolist())
-            row = {"row_id": int(row_id), **dict(predictions)}
+            row = {"row_id": row_id, **dict(predictions)}
             rows.append(row)
-    submission_df = pd.DataFrame(rows)
+    submission_df = pd.DataFrame(rows)[["row_id", *SPECIES]]
     submission_df.to_csv(output_csv_path, index=False)
+    return submission_df
