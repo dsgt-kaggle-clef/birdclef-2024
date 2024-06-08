@@ -9,6 +9,7 @@ torch
 torchvision
 torchaudio
 librosa
+sox
 transformers
 tensorflow
 tensorflow_hub

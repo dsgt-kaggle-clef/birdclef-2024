@@ -32,14 +32,16 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
         model = GoogleVocalizationInference(self.metadata_path, self.model_path)
         for i in range(iter_start, iter_end):
             path = self.soundscapes[i]
-            df = model.predict_df(path.parent, path.name)
+            embeddings, logits = model.predict(path)
+            n_chunks = embeddings.shape[0]
+            indices = range(n_chunks)
 
             # now we yield a dictionary
-            for row in df.itertuples():
+            for idx, embedding, logit in zip(indices, embeddings, logits):
                 yield {
-                    "row_id": f"{Path(row.name).stem}_{row.chunk_5s*5}",
-                    "embedding": torch.from_numpy(row.embedding),
-                    "logits": torch.from_numpy(row.logits),
+                    "row_id": f"{path.stem}_{idx*5}",
+                    "embedding": embedding,
+                    "logits": logit,
                 }
 
     def __iter__(self):

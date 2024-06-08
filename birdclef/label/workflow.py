@@ -56,7 +56,7 @@ class Workflow(luigi.Task):
     output_path = luigi.Parameter()
 
     model_path = luigi.Parameter()
-    partitions = luigi.IntParameter(default=64)
+    partitions = luigi.IntParameter(default=16)
 
     def run(self):
         metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
