@@ -25,12 +25,17 @@ class LinearClassifier(pl.LightningModule):
     def _run_step(self, batch, batch_idx, step_name):
         x, y = batch["features"], batch["label"]
         logits = self(x)
-        loss = self.loss(logits, y)
+        # sigmoid the label and apply a threshold
+        y_sigmoid = torch.sigmoid(y)
+        y_threshold = (y_sigmoid > 0.5).float()
+        loss = self.loss(logits, y_threshold)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
-        y = y.to(torch.long)  # ensure target tensor is of type long
+        y_threshold = y_threshold.to(
+            torch.long
+        )  # AUROC expects the target tensor of type long
         self.log(
             f"{step_name}_auroc",
-            self.auroc_score(logits, y),
+            self.auroc_score(logits, y_threshold),
             on_step=False,
             on_epoch=True,
         )

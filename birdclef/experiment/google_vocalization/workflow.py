@@ -26,83 +26,6 @@ from .data import PetastormDataModule
 from .model import LinearClassifier, TwoLayerClassifier
 
 
-class ProcessBase(luigi.Task):
-    input_path = luigi.Parameter()
-    output_path = luigi.Parameter()
-    sample_col = luigi.Parameter(default="species_id")
-    num_partitions = luigi.OptionalIntParameter(default=32)
-    sample_id = luigi.OptionalIntParameter(default=None)
-    num_sample_id = luigi.OptionalIntParameter(default=10)
-
-    def output(self):
-        if self.sample_id is None:
-            # save both the model pipeline and the dataset
-            return luigi.contrib.gcs.GCSTarget(f"{self.output_path}/data/_SUCCESS")
-        else:
-            return luigi.contrib.gcs.GCSTarget(
-                f"{self.output_path}/data/sample_id={self.sample_id}/_SUCCESS"
-            )
-
-    @property
-    def feature_columns(self) -> list:
-        raise NotImplementedError()
-
-    def pipeline(self) -> Pipeline:
-        raise NotImplementedError()
-
-    def transform(self, model, df, features) -> DataFrame:
-        transformed = model.transform(df)
-
-        if self.sample_id is not None:
-            transformed = (
-                transformed.withColumn(
-                    "sample_id",
-                    F.crc32(F.col(self.sample_col).cast("string")) % self.num_sample_id,
-                )
-                .where(F.col("sample_id") == self.sample_id)
-                .drop("sample_id")
-            )
-
-        for c in features:
-            # check if the feature is a vector and convert it to an array
-            if "array" in transformed.schema[c].simpleString():
-                continue
-            transformed = transformed.withColumn(c, vector_to_array(F.col(c)))
-        return transformed
-
-    def run(self):
-        with spark_resource(
-            **{"spark.sql.shuffle.partitions": self.num_partitions}
-        ) as spark:
-            df = spark.read.parquet(self.input_path)
-
-            model = self.pipeline().fit(df)
-            transformed = self.transform(model, df, self.feature_columns)
-
-            if self.sample_id is None:
-                output_path = f"{self.output_path}/data"
-            else:
-                output_path = f"{self.output_path}/data/sample_id={self.sample_id}"
-
-            transformed.repartition(self.num_partitions).write.mode(
-                "overwrite"
-            ).parquet(output_path)
-
-
-class ProcessEmbeddings(ProcessBase):
-    sql_statement = luigi.Parameter()
-
-    @property
-    def feature_columns(self) -> list:
-        return ["sigmoid_logits"]
-
-    def pipeline(self):
-        transform = TransformEmbedding(input_col="embedding", output_col="embedding")
-        return Pipeline(
-            stages=[transform, SQLTransformer(statement=self.sql_statement)]
-        )
-
-
 class TrainClassifier(luigi.Task):
     input_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
@@ -223,20 +146,10 @@ class Workflow(luigi.Task):
     def run(self):
         # training workflow parameters
         train_model = True
-        sample_col = "sigmoid_logits"
-        sql_statement = "SELECT id, sigmoid_logits, embedding FROM __THIS__"
-        # process bird embeddings
-        yield ProcessEmbeddings(
-            input_path=self.input_path,
-            output_path=self.output_path,
-            sample_col=sample_col,
-            sql_statement=sql_statement,
-        )
 
         # train classifier
         if train_model:
             label_col, feature_col = "sigmoid_logits", "embedding"
-            # Parameters
             # Retrieve hyperparameter configuration
             hp = HyperparameterGrid()
             _, loss_params, hidden_layers = hp.get_hyperparameter_config()
@@ -245,7 +158,7 @@ class Workflow(luigi.Task):
             model = "linear"
             yield [
                 TrainClassifier(
-                    input_path=f"{self.output_path}/data",
+                    input_path=self.input_path,
                     default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
                     label_col=label_col,
                     feature_col=feature_col,
@@ -259,7 +172,7 @@ class Workflow(luigi.Task):
             model, loss = "two_layer", "bce"
             yield [
                 TrainClassifier(
-                    input_path=f"{self.output_path}/data",
+                    input_path=self.input_path,
                     default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
                     label_col=label_col,
                     feature_col=feature_col,
