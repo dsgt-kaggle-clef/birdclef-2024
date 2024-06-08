@@ -29,7 +29,7 @@ class ProcessBase(luigi.Task):
     input_path = luigi.Parameter()
     output_path = luigi.Parameter()
     sample_col = luigi.Parameter(default="species_id")
-    num_partitions = luigi.OptionalIntParameter(default=500)
+    num_partitions = luigi.OptionalIntParameter(default=32)
     sample_id = luigi.OptionalIntParameter(default=None)
     num_sample_id = luigi.OptionalIntParameter(default=10)
 
@@ -110,7 +110,7 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
-    batch_size = luigi.IntParameter(default=32)
+    batch_size = luigi.IntParameter(default=64)
     num_partitions = luigi.IntParameter(default=32)
     two_layer = luigi.OptionalBoolParameter(default=False)
 
@@ -218,17 +218,12 @@ class Workflow(luigi.Task):
         sample_col = "sigmoid_logits"
         sql_statement = "SELECT id, sigmoid_logits, embedding FROM __THIS__"
         # process bird embeddings
-        yield [
-            ProcessEmbeddings(
-                input_path=self.input_path,
-                output_path=self.output_path,
-                sample_id=i,
-                num_sample_id=10,
-                sample_col=sample_col,
-                sql_statement=sql_statement,
-            )
-            for i in range(10)
-        ]
+        yield ProcessEmbeddings(
+            input_path=self.input_path,
+            output_path=self.output_path,
+            sample_col=sample_col,
+            sql_statement=sql_statement,
+        )
 
         # train classifier
         if train_model:
@@ -242,7 +237,7 @@ class Workflow(luigi.Task):
             model = "linear"
             for loss in list(loss_params.keys()):
                 yield TrainClassifier(
-                    input_path=self.output_path,
+                    input_path=f"{self.output_path}/data",
                     default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
                     label_col=label_col,
                     feature_col=feature_col,
@@ -255,7 +250,7 @@ class Workflow(luigi.Task):
             loss = "bce"
             for hidden_layer_size in hidden_layers:
                 yield TrainClassifier(
-                    input_path=self.output_path,
+                    input_path=f"{self.output_path}/data",
                     default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
                     label_col=label_col,
                     feature_col=feature_col,

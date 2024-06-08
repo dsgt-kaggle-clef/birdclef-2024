@@ -13,9 +13,9 @@ class PetastormDataModule(pl.LightningDataModule):
         input_path,
         feature_col,
         label_col,
-        batch_size=32,
+        batch_size=64,
         num_partitions=32,
-        workers_count=os.cpu_count(),
+        workers_count=4,  # os.cpu_count(),
     ):
         super().__init__()
         cache_dir = "file:///mnt/data/tmp"
