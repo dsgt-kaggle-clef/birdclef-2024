@@ -45,7 +45,7 @@ class PetastormDataModule(pl.LightningDataModule):
             .withColumnRenamed(self.label_col, "label")
             .select(
                 F.col("features").cast("array<float>").alias("features"),
-                F.col("label").cast("array<double>").alias("label"),
+                F.col("label").cast("array<float>").alias("label"),
             )
             .repartition(partitions)
         )
@@ -63,7 +63,6 @@ class PetastormDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         """Setup dataframe for petastorm spark converter"""
         # Get prepared data
-        # prepared_df = self._prepare_species_data().cache()
         prepared_df = self._prepare_data()
         # train/valid Split
         self.train_data, self.valid_data = self._train_valid_split(df=prepared_df)

@@ -5,15 +5,15 @@ from torchmetrics.classification import MultilabelAUROC
 
 
 class LinearClassifier(pl.LightningModule):
-    def __init__(self, num_features: int, num_classes: int, loss):
+    def __init__(self, num_features: int, num_labels: int, loss):
         super().__init__()
         self.num_features = num_features
-        self.num_classes = num_classes
+        self.num_labels = num_labels
         self.loss = loss
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
-        self.model = nn.Linear(num_features, num_classes)
+        self.model = nn.Linear(num_features, num_labels)
         self.learning_rate = 0.002
-        self.auroc_score = MultilabelAUROC(num_classes=num_classes, average="weighted")
+        self.auroc_score = MultilabelAUROC(num_labels=num_labels, average="weighted")
 
     def forward(self, x):
         return self.model(x)
@@ -27,6 +27,7 @@ class LinearClassifier(pl.LightningModule):
         logits = self(x)
         loss = self.loss(logits, y)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
+        y = y.to(torch.long)  # ensure target tensor is of type long
         self.log(
             f"{step_name}_auroc",
             self.auroc_score(logits, y),
