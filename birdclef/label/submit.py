@@ -1,4 +1,5 @@
 import pandas as pd
+from tqdm import tqdm
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
 
@@ -20,7 +21,7 @@ def make_submission(
     predictions = dm.predict_dataloader()
 
     rows = []
-    for batch in predictions:
+    for batch in tqdm(predictions):
         for row_id, prediction in zip(batch["row_id"], batch["prediction"]):
             predictions = zip(SPECIES, prediction.numpy().tolist())
             row = {"row_id": row_id, **dict(predictions)}
