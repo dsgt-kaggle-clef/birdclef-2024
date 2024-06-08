@@ -55,8 +55,8 @@ class TrainClassifier(luigi.Task):
             data_module = PetastormDataModule(
                 spark,
                 self.input_path,
-                self.feature_col,
                 self.label_col,
+                self.feature_col,
                 self.batch_size,
                 self.num_partitions,
             )
@@ -82,6 +82,8 @@ class TrainClassifier(luigi.Task):
                 model = torch_model(num_features, num_labels, loss=loss_fn)
 
             # initialise the wandb logger and name your wandb project
+            print(f"\nwanb name: {Path(self.default_root_dir).name}")
+            print(f"wanb save dir: {self.default_root_dir}\n")
             wandb_logger = WandbLogger(
                 project="birdclef-2024",
                 name=Path(self.default_root_dir).name,
@@ -96,22 +98,20 @@ class TrainClassifier(luigi.Task):
                 monitor="val_loss",
                 save_last=True,
             )
-
             # profiler
-            profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+            # profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
 
             # trainer
             trainer = pl.Trainer(
                 max_epochs=10,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
-                # reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_root_dir,
                 logger=wandb_logger,
                 callbacks=[
-                    EarlyStopping(monitor="val_loss", mode="min"),
+                    # EarlyStopping(monitor="val_loss", mode="min"),
                     model_checkpoint,
                 ],
-                profiler=profiler,
+                profiler="simple",
             )
 
             # fit model
@@ -144,45 +144,40 @@ class Workflow(luigi.Task):
     default_root_dir = luigi.Parameter()
 
     def run(self):
-        # training workflow parameters
-        train_model = True
+        label_col, feature_col = "logits", "embedding"
+        # get hyperparameter config
+        hp = HyperparameterGrid()
+        _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
-        # train classifier
-        if train_model:
-            label_col, feature_col = "sigmoid_logits", "embedding"
-            # Retrieve hyperparameter configuration
-            hp = HyperparameterGrid()
-            _, loss_params, hidden_layers = hp.get_hyperparameter_config()
+        # Linear model grid search
+        model = "linear"
+        yield [
+            TrainClassifier(
+                input_path=self.input_path,
+                default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
+                label_col=label_col,
+                feature_col=feature_col,
+                loss=loss,
+                model=model,
+            )
+            for loss in list(loss_params.keys())
+        ]
 
-            # Linear model grid search
-            model = "linear"
-            yield [
-                TrainClassifier(
-                    input_path=self.input_path,
-                    default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
-                    label_col=label_col,
-                    feature_col=feature_col,
-                    loss=loss,
-                    model=model,
-                )
-                for loss in list(loss_params.keys())
-            ]
-
-            # TwoLayer model grid search
-            model, loss = "two_layer", "bce"
-            yield [
-                TrainClassifier(
-                    input_path=self.input_path,
-                    default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
-                    label_col=label_col,
-                    feature_col=feature_col,
-                    loss=loss,
-                    model=model,
-                    hidden_layer_size=hidden_layer_size,
-                    two_layer=True,
-                )
-                for hidden_layer_size in hidden_layers
-            ]
+        # TwoLayer model grid search
+        model, loss = "two_layer", "bce"
+        yield [
+            TrainClassifier(
+                input_path=self.input_path,
+                default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
+                label_col=label_col,
+                feature_col=feature_col,
+                loss=loss,
+                model=model,
+                hidden_layer_size=hidden_layer_size,
+                two_layer=True,
+            )
+            for hidden_layer_size in hidden_layers
+        ]
 
 
 def parse_args():
