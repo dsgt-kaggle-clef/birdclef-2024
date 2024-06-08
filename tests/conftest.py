@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-import torch
-import torchaudio
+import soundfile as sf
 
 from birdclef.config import SPECIES
 from birdclef.utils import spark_resource
@@ -42,10 +41,8 @@ def metadata_path(tmp_path):
         )
         sr = 32_000
         # create 2 channel audio from random noise
-        y = torch.tensor(np.random.rand(2 * 10 * sr), dtype=torch.float32).reshape(
-            2, -1
-        )
-        torchaudio.save(str(tmp_path / filename), y, sr)
+        y = np.random.rand(10 * sr)
+        sf.write(tmp_path / filename, y, sr)
     df = pd.DataFrame(rows)
     df.to_csv(metadata, index=False)
     return metadata
@@ -78,8 +75,6 @@ def soundscape_path(tmp_path):
         filename = f"file_{i}.ogg"
         sr = 32_000
         # create 2 channel audio from random noise
-        y = torch.tensor(np.random.rand(2 * 10 * sr), dtype=torch.float32).reshape(
-            2, -1
-        )
-        torchaudio.save(str(soundscape / filename), y, sr)
+        y = np.random.rand(10 * sr)
+        sf.write(soundscape / filename, y, sr)
     return soundscape
