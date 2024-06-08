@@ -4,7 +4,7 @@ import pytest
 import torch
 import torchaudio
 
-from birdclef.label.inference import GoogleVocalizationInference
+from birdclef.label.google_vocalization.inference import GoogleVocalizationInference
 
 """
 Example metadata:
