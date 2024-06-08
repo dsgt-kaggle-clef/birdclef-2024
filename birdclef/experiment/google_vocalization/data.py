@@ -13,7 +13,7 @@ class PetastormDataModule(pl.LightningDataModule):
         input_path,
         feature_col,
         label_col,
-        batch_size=32,
+        batch_size=64,
         num_partitions=32,
         workers_count=os.cpu_count(),
     ):
@@ -36,16 +36,6 @@ class PetastormDataModule(pl.LightningDataModule):
         :return: DataFrame of filtered and indexed species data
         """
         df = self.spark.read.parquet(self.input_path).cache()
-        # # Aggregate and filter species based on image count
-        # grouped_df = (
-        #     df.groupBy(self.label_col)
-        #     .agg(F.count(self.label_col).alias("n"))
-        #     .orderBy(F.col("n").desc(), F.col(self.label_col))
-        #     .withColumn("index", F.monotonically_increasing_id())
-        # ).drop("n")
-
-        # # Use broadcast join to optimize smaller DataFrame joining
-        # final_df = df.join(grouped_df, self.label_col, "inner")
         return df
 
     def _prepare_dataframe(self, df, partitions=32):
@@ -55,7 +45,7 @@ class PetastormDataModule(pl.LightningDataModule):
             .withColumnRenamed(self.label_col, "label")
             .select(
                 F.col("features").cast("array<float>").alias("features"),
-                F.col("label").cast("long").alias("label"),
+                F.col("label").cast("array<float>").alias("label"),
             )
             .repartition(partitions)
         )
@@ -73,7 +63,6 @@ class PetastormDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         """Setup dataframe for petastorm spark converter"""
         # Get prepared data
-        # prepared_df = self._prepare_species_data().cache()
         prepared_df = self._prepare_data()
         # train/valid Split
         self.train_data, self.valid_data = self._train_valid_split(df=prepared_df)
