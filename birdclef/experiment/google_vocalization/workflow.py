@@ -1,4 +1,3 @@
-import itertools
 import os
 from argparse import ArgumentParser
 from pathlib import Path
@@ -7,19 +6,14 @@ import luigi
 import luigi.contrib.gcs
 import pytorch_lightning as pl
 import torch
+import wandb
 from lightning.pytorch.profilers import AdvancedProfiler
-from pyspark.ml import Pipeline
-from pyspark.ml.feature import SQLTransformer
-from pyspark.ml.functions import vector_to_array
-from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch import nn
 
 from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
-from birdclef.transforms import TransformEmbedding
 from birdclef.utils import spark_resource
 
 from .data import PetastormDataModule
@@ -34,8 +28,8 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
-    batch_size = luigi.IntParameter(default=1000)
-    num_partitions = luigi.IntParameter(default=32)
+    batch_size = luigi.IntParameter(default=100)
+    num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
 
     def output(self):
@@ -98,24 +92,23 @@ class TrainClassifier(luigi.Task):
                 monitor="val_loss",
                 save_last=True,
             )
-            # profiler
-            # profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
 
             # trainer
             trainer = pl.Trainer(
-                max_epochs=10,
+                max_epochs=50,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
+                reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_root_dir,
                 logger=wandb_logger,
                 callbacks=[
-                    # EarlyStopping(monitor="val_loss", mode="min"),
+                    EarlyStopping(monitor="val_auroc", mode="min"),
                     model_checkpoint,
                 ],
-                profiler="simple",
             )
-
-            # fit model
             trainer.fit(model, data_module)
+
+            # end W&B
+            wandb.finish()
 
         # write the output
         with self.output().open("w") as f:
@@ -127,12 +120,12 @@ class HyperparameterGrid:
         # Model and Loss mappings
         model_params = {
             "linear": LinearClassifier,
-            "two_layer": TwoLayerClassifier,
+            # "two_layer": TwoLayerClassifier,
         }
         loss_params = {
             "bce": nn.BCEWithLogitsLoss,
-            "asl": AsymmetricLossOptimized,
-            "sigmoid_f1": SigmoidF1,
+            # "asl": AsymmetricLossOptimized,
+            # "sigmoid_f1": SigmoidF1,
         }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
@@ -163,21 +156,21 @@ class Workflow(luigi.Task):
             for loss in list(loss_params.keys())
         ]
 
-        # TwoLayer model grid search
-        model, loss = "two_layer", "bce"
-        yield [
-            TrainClassifier(
-                input_path=self.input_path,
-                default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
-                label_col=label_col,
-                feature_col=feature_col,
-                loss=loss,
-                model=model,
-                hidden_layer_size=hidden_layer_size,
-                two_layer=True,
-            )
-            for hidden_layer_size in hidden_layers
-        ]
+        # # TwoLayer model grid search
+        # model, loss = "two_layer", "bce"
+        # yield [
+        #     TrainClassifier(
+        #         input_path=self.input_path,
+        #         default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
+        #         label_col=label_col,
+        #         feature_col=feature_col,
+        #         loss=loss,
+        #         model=model,
+        #         hidden_layer_size=hidden_layer_size,
+        #         two_layer=True,
+        #     )
+        #     for hidden_layer_size in hidden_layers
+        # ]
 
 
 def parse_args():
@@ -191,13 +184,13 @@ def parse_args():
     parser.add_argument(
         "--train-data-path",
         type=str,
-        default="data/intermediate/google_embeddings/v1",
+        default="data/processed/google_embeddings/v1",
         help="Root directory for training data in GCS",
     )
     parser.add_argument(
         "--output-name-path",
         type=str,
-        default="data/intermediate/google_embeddings/v1-transformed",
+        default="data/processed/google_embeddings/v1-transformed",
         help="GCS path for output Parquet files",
     )
     parser.add_argument(

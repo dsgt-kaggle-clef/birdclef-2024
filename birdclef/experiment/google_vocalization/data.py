@@ -15,7 +15,7 @@ class PetastormDataModule(pl.LightningDataModule):
         label_col,
         feature_col,
         batch_size=64,
-        num_partitions=32,
+        num_partitions=os.cpu_count(),
         workers_count=os.cpu_count(),
     ):
         super().__init__()
@@ -31,7 +31,7 @@ class PetastormDataModule(pl.LightningDataModule):
         self.num_partitions = num_partitions
         self.workers_count = workers_count
 
-    def _prepare_dataframe(self, df, partitions=32):
+    def _prepare_dataframe(self, df):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
         return (
             df.withColumnRenamed(self.feature_col, "features")
@@ -40,7 +40,7 @@ class PetastormDataModule(pl.LightningDataModule):
                 F.col("features").cast("array<float>").alias("features"),
                 F.col("label").cast("array<float>").alias("label"),
             )
-            .repartition(partitions)
+            .repartition(self.num_partitions)
         )
 
     def _train_valid_split(self, df):
@@ -62,6 +62,7 @@ class PetastormDataModule(pl.LightningDataModule):
             df = self.spark.read.parquet(self.input_path).cache()
             # train/valid Split
             self.train_data, self.valid_data = self._train_valid_split(df=df)
+            print(self.train_data.count(), self.valid_data.count())
 
             # setup petastorm data conversion from Spark to PyTorch
             self.converter_train = make_spark_converter(self.train_data)

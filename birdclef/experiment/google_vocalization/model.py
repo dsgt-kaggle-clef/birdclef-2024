@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 import torch
 from torch import nn
-from torchmetrics.classification import MultilabelAUROC
+from torchmetrics.classification import MultilabelAUROC, MultilabelF1Score
 
 
 class LinearClassifier(pl.LightningModule):
@@ -9,10 +9,11 @@ class LinearClassifier(pl.LightningModule):
         super().__init__()
         self.num_features = num_features
         self.num_labels = num_labels
-        self.loss = loss
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
+        self.loss = nn.BCEWithLogitsLoss()
         self.model = nn.Linear(num_features, num_labels)
         self.learning_rate = 0.002
+        self.f1_score = MultilabelF1Score(num_labels=num_labels, average="macro")
         self.auroc_score = MultilabelAUROC(num_labels=num_labels, average="weighted")
 
     def forward(self, x):
@@ -30,12 +31,15 @@ class LinearClassifier(pl.LightningModule):
         y_threshold = (y_sigmoid > 0.5).float()
         loss = self.loss(logits, y_threshold)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
-        y_threshold = y_threshold.to(
-            torch.long
-        )  # AUROC expects the target tensor of type long
+        self.log(
+            f"{step_name}_f1",
+            self.f1_score(logits, y_threshold),
+            on_step=False,
+            on_epoch=True,
+        )
         self.log(
             f"{step_name}_auroc",
-            self.auroc_score(logits, y_threshold),
+            self.auroc_score(logits, y_threshold.to(torch.long)),
             on_step=False,
             on_epoch=True,
         )
