@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 import luigi
 import pandas as pd
 
+from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
 from birdclef.label.inference import GoogleVocalizationInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
 from birdclef.utils import spark_resource
@@ -118,7 +119,7 @@ def parse_args():
     parser.add_argument(
         "--model-path",
         type=str,
-        default="https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4",
+        default=DEFAULT_VOCALIZATION_MODEL_PATH,
     )
     parser.add_argument(
         "--scheduler-host",
