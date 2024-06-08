@@ -1,6 +1,6 @@
 [project]
 name = "birdclef"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{ name = "Anthony Miyaguchi", email = "acmiyaguchi@gatech.edu" }]
 description = "DS@GT BirdCLEF helper package"
 readme = "README.md"
@@ -20,5 +20,5 @@ dependencies = { file = "requirements.txt" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["birdclef"]
+include = ["birdclef*"]
 namespaces = false
