@@ -5,7 +5,7 @@ from torchmetrics.classification import MultilabelAUROC
 
 
 class LinearClassifier(pl.LightningModule):
-    def __init__(self, num_features: int, num_labels: int, loss):
+    def __init__(self, num_features: int, num_labels: int, loss=nn.BCEWithLogitsLoss()):
         super().__init__()
         self.num_features = num_features
         self.num_labels = num_labels

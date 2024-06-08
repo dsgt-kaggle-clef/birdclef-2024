@@ -17,7 +17,7 @@ from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch import nn
 
-from birdclef.torch.losses import ASLSingleLabel, SigmoidF1
+from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.transforms import TransformEmbedding
 from birdclef.utils import spark_resource
 
@@ -110,7 +110,7 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
-    batch_size = luigi.IntParameter(default=64)
+    batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=32)
     two_layer = luigi.OptionalBoolParameter(default=False)
 
@@ -174,13 +174,14 @@ class TrainClassifier(luigi.Task):
             trainer = pl.Trainer(
                 max_epochs=10,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
-                reload_dataloaders_every_n_epochs=1,
+                # reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_root_dir,
                 logger=wandb_logger,
                 callbacks=[
                     EarlyStopping(monitor="val_loss", mode="min"),
                     model_checkpoint,
                 ],
+                profiler="simple",
             )
 
             # fit model
@@ -200,7 +201,7 @@ class HyperparameterGrid:
         }
         loss_params = {
             "bce": nn.BCEWithLogitsLoss,
-            "asl": ASLSingleLabel,
+            "asl": AsymmetricLossOptimized,
             "sigmoid_f1": SigmoidF1,
         }
         hidden_layers = [64, 128, 256]

@@ -1,3 +1,4 @@
+import itertools
 import random
 import warnings
 
@@ -10,6 +11,7 @@ from torch import nn
 
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
 from birdclef.experiment.google_vocalization.model import LinearClassifier
+from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import get_spark
 
 
@@ -65,15 +67,21 @@ def test_petastorm_data_module_setup(spark, temp_spark_data_path):
 
 # run this both gpu and cpu, but only the gpu if it's available
 # pytest parametrize
-@pytest.mark.parametrize("device", ["cpu", "gpu"])
-def test_torch_model(spark, temp_spark_data_path, device):
+@pytest.mark.parametrize(
+    "device,loss", itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"])
+)
+def test_torch_model(spark, temp_spark_data_path, device, loss):
     if device == "gpu" and not torch.cuda.is_available():
         pytest.skip()
     # Params
     input_path = temp_spark_data_path
     feature_col = "embeddings"
     label_col = "species_name"
-    loss_fn = nn.BCEWithLogitsLoss()
+    losses = {
+        "bce": nn.BCEWithLogitsLoss(),
+        "asl": AsymmetricLossOptimized(),
+        "sigmoidf1": SigmoidF1(),
+    }
 
     data_module = PetastormDataModule(
         spark=spark,
@@ -88,6 +96,9 @@ def test_torch_model(spark, temp_spark_data_path, device):
         len(data_module.train_data.select("features").first()["features"])
     )
     num_labels = int(len(data_module.train_data.select("label").first()["label"]))
+
+    # test losses
+    loss_fn = losses[loss]
     model = LinearClassifier(num_features, num_labels, loss_fn)
 
     trainer = pl.Trainer(
