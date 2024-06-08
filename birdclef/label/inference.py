@@ -55,18 +55,17 @@ class GoogleVocalizationInference:
         :param window: The size of the window to split the audio into.
         """
         audio = torchaudio.load(path)[0].numpy()[0]
-        embeddings = []
-        logits = []
-        for i in range(0, len(audio), window):
-            clip = audio[i : i + window]
-            if len(clip) < window:
-                clip = np.concatenate([clip, np.zeros(window - len(clip))])
-            result = self.model.infer_tf(clip[None, :])
-            embeddings.append(result[1][0].numpy())
-            clip_logits = np.concatenate([result[0].numpy(), -np.inf], axis=None)
-            logits.append(clip_logits[self.model_indices])
-        embeddings = np.stack(embeddings)
-        logits = np.stack(logits)
+        # right pad the audio so we can reshape into a rectangle
+        if len(audio) % window != 0:
+            audio = np.concatenate([audio, np.zeros(window - len(audio) % window)])
+        # reshape the audio into windowsize chunks
+        audio = audio.reshape(-1, window)
+        result = self.model.infer_tf(audio)
+        embeddings = result[1].numpy()
+        # create a new array that is full of -inf
+        neg_inf = np.ones((audio.shape[0], 1)) * -np.inf
+        clip_logits = np.concatenate([result[0].numpy(), neg_inf], axis=1)
+        logits = clip_logits[:, self.model_indices]
         return embeddings, logits
 
     def predict_df(self, root, suffix) -> pd.DataFrame:
