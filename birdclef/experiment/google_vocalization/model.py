@@ -51,13 +51,13 @@ class TwoLayerClassifier(LinearClassifier):
         self,
         num_features: int,
         num_classes: int,
-        asl_loss: bool = False,
         hidden_layer_size: int = 64,
+        **kwargs,
     ):
-        super().__init__(num_features, num_classes, asl_loss)
+        super().__init__(num_features, num_classes, **kwargs)
         self.model = nn.Sequential(
             nn.Linear(num_features, hidden_layer_size),
-            nn.BatchNorm1d(num_features),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_layer_size, num_classes),
         )

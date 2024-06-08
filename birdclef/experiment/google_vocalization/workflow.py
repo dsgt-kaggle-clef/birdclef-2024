@@ -7,6 +7,7 @@ import luigi
 import luigi.contrib.gcs
 import pytorch_lightning as pl
 import torch
+from lightning.pytorch.profilers import AdvancedProfiler
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import SQLTransformer
 from pyspark.ml.functions import vector_to_array
@@ -149,10 +150,13 @@ class TrainClassifier(luigi.Task):
             # model module
             if self.two_layer:
                 model = torch_model(
-                    num_features, num_labels, loss_fn, self.hidden_layer_size
+                    num_features,
+                    num_labels,
+                    loss=loss_fn,
+                    hidden_layer_size=self.hidden_layer_size,
                 )
             else:
-                model = torch_model(num_features, num_labels, loss_fn)
+                model = torch_model(num_features, num_labels, loss=loss_fn)
 
             # initialise the wandb logger and name your wandb project
             wandb_logger = WandbLogger(
@@ -170,6 +174,9 @@ class TrainClassifier(luigi.Task):
                 save_last=True,
             )
 
+            # profiler
+            profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+
             # trainer
             trainer = pl.Trainer(
                 max_epochs=10,
@@ -181,7 +188,7 @@ class TrainClassifier(luigi.Task):
                     EarlyStopping(monitor="val_loss", mode="min"),
                     model_checkpoint,
                 ],
-                profiler="simple",
+                profiler=profiler,
             )
 
             # fit model
@@ -236,8 +243,8 @@ class Workflow(luigi.Task):
 
             # Linear model grid search
             model = "linear"
-            for loss in list(loss_params.keys()):
-                yield TrainClassifier(
+            yield [
+                TrainClassifier(
                     input_path=f"{self.output_path}/data",
                     default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
                     label_col=label_col,
@@ -245,12 +252,13 @@ class Workflow(luigi.Task):
                     loss=loss,
                     model=model,
                 )
+                for loss in list(loss_params.keys())
+            ]
 
             # TwoLayer model grid search
-            model = "two_layer"
-            loss = "bce"
-            for hidden_layer_size in hidden_layers:
-                yield TrainClassifier(
+            model, loss = "two_layer", "bce"
+            yield [
+                TrainClassifier(
                     input_path=f"{self.output_path}/data",
                     default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
                     label_col=label_col,
@@ -260,6 +268,8 @@ class Workflow(luigi.Task):
                     hidden_layer_size=hidden_layer_size,
                     two_layer=True,
                 )
+                for hidden_layer_size in hidden_layers
+            ]
 
 
 def parse_args():
@@ -313,4 +323,5 @@ if __name__ == "__main__":
             )
         ],
         scheduler_host=args.scheduler_host,
+        workers=1,
     )

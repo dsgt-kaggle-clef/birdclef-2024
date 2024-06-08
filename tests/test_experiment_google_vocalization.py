@@ -10,7 +10,10 @@ from pyspark.sql.types import ArrayType, FloatType, StructField, StructType
 from torch import nn
 
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
-from birdclef.experiment.google_vocalization.model import LinearClassifier
+from birdclef.experiment.google_vocalization.model import (
+    LinearClassifier,
+    TwoLayerClassifier,
+)
 from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import get_spark
 
@@ -68,9 +71,9 @@ def test_petastorm_data_module_setup(spark, temp_spark_data_path):
 # run this both gpu and cpu, but only the gpu if it's available
 # pytest parametrize
 @pytest.mark.parametrize(
-    "device,loss", itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"])
+    "device, loss", itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"])
 )
-def test_torch_model(spark, temp_spark_data_path, device, loss):
+def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
     if device == "gpu" and not torch.cuda.is_available():
         pytest.skip()
     # Params
@@ -100,6 +103,50 @@ def test_torch_model(spark, temp_spark_data_path, device, loss):
     # test losses
     loss_fn = losses[loss]
     model = LinearClassifier(num_features, num_labels, loss_fn)
+
+    trainer = pl.Trainer(
+        accelerator=device,
+        default_root_dir=temp_spark_data_path,
+        fast_dev_run=True,
+    )
+    trainer.fit(model, data_module)
+
+
+# run this both gpu and cpu, but only the gpu if it's available
+# pytest parametrize
+@pytest.mark.parametrize("device, loss", itertools.product(["cpu", "gpu"], ["bce"]))
+def test_two_layer_torch_model(spark, temp_spark_data_path, device, loss):
+    if device == "gpu" and not torch.cuda.is_available():
+        pytest.skip()
+    # Params
+    input_path = temp_spark_data_path
+    feature_col = "embeddings"
+    label_col = "species_name"
+    losses = {
+        "bce": nn.BCEWithLogitsLoss(),
+        "asl": AsymmetricLossOptimized(),
+        "sigmoidf1": SigmoidF1(),
+    }
+
+    data_module = PetastormDataModule(
+        spark=spark,
+        input_path=input_path,
+        feature_col=feature_col,
+        label_col=label_col,
+    )
+    data_module.setup()
+
+    # get parameters for the model
+    num_features = int(
+        len(data_module.train_data.select("features").first()["features"])
+    )
+    num_labels = int(len(data_module.train_data.select("label").first()["label"]))
+
+    # test losses
+    loss_fn = losses[loss]
+    model = TwoLayerClassifier(
+        num_features, num_labels, loss=loss_fn, hidden_layer_size=64
+    )
 
     trainer = pl.Trainer(
         accelerator=device,
