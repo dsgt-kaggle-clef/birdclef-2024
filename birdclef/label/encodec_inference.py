@@ -5,10 +5,9 @@ import numpy as np
 import pandas as pd
 import tensorflow_hub as hub
 import torchaudio
-from tqdm import tqdm
-
 from encodec import EncodecModel
 from encodec.utils import convert_audio
+from tqdm import tqdm
 
 from birdclef.label.inference import Inference
 
@@ -23,7 +22,7 @@ class EncodecInference(Inference):
     ):
         self.metadata = pd.read_csv(metadata_path)
         self.chunk_size = chunk_size
-        self.model = EncodecModel.encodec_model_24khz().model.set_target_bandwidth(3.0)
+        self.model = EncodecModel.encodec_model_24khz().set_target_bandwidth(3.0)
 
     def predict(
         self,

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from birdclef.label.google_vocalization.inference import GoogleVocalizationInference
+from birdclef.label.google_inference import GoogleVocalizationInference
 
 
 def test_google_vocalization_inference_init(metadata_path):

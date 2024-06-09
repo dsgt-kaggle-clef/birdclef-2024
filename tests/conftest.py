@@ -45,7 +45,7 @@ def metadata_path(tmp_path):
         y = torch.tensor(np.random.rand(2 * 10 * sr), dtype=torch.float32).reshape(
             2, -1
         )
-        torchaudio.save(str(tmp_path / filename), y, sr)
+        torchaudio.save(str(tmp_path / filename), y, sr, backend="ffmpeg")
     df = pd.DataFrame(rows)
     df.to_csv(metadata, index=False)
     return metadata

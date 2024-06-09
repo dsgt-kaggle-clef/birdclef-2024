@@ -1,6 +1,6 @@
 import pandas as pd
 
-from birdclef.label.encodec.inference import EncodecInference
+from birdclef.label.encodec_inference import EncodecInference
 
 
 def test_encodec_inference_init(metadata_path):

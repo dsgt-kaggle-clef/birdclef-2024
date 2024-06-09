@@ -4,8 +4,8 @@ import luigi
 import pandas as pd
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
-from birdclef.label.encodec.inference import EncodecInference
-from birdclef.label.google_vocalization.inference import GoogleVocalizationInference
+from birdclef.label.encodec_inference import EncodecInference
+from birdclef.label.google_inference import GoogleVocalizationInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
 from birdclef.utils import spark_resource
 
