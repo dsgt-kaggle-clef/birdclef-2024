@@ -1,9 +1,19 @@
 import os
+import warnings
 from pathlib import Path
 
 import pytorch_lightning as pl
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
+from torchvision.transforms import v2
+
+
+# create a transform to convert a list of numbers into a sparse tensor
+class ToSparseTensor(v2.Transform):
+    def forward(self, batch):
+        if "label" in batch:
+            batch["label"] = batch["label"].to_sparse()
+        return batch
 
 
 class PetastormDataModule(pl.LightningDataModule):
@@ -11,10 +21,10 @@ class PetastormDataModule(pl.LightningDataModule):
         self,
         spark,
         input_path,
-        feature_col,
         label_col,
+        feature_col,
         batch_size=64,
-        num_partitions=32,
+        num_partitions=os.cpu_count(),
         workers_count=os.cpu_count(),
     ):
         super().__init__()
@@ -24,21 +34,13 @@ class PetastormDataModule(pl.LightningDataModule):
         )
         self.spark = spark
         self.input_path = input_path
-        self.feature_col = feature_col
         self.label_col = label_col
+        self.feature_col = feature_col
         self.batch_size = batch_size
         self.num_partitions = num_partitions
         self.workers_count = workers_count
 
-    def _prepare_data(self):
-        """
-        Prepare data for petastorm loading.
-        :return: DataFrame of filtered and indexed species data
-        """
-        df = self.spark.read.parquet(self.input_path).cache()
-        return df
-
-    def _prepare_dataframe(self, df, partitions=32):
+    def _prepare_dataframe(self, df):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
         return (
             df.withColumnRenamed(self.feature_col, "features")
@@ -47,7 +49,7 @@ class PetastormDataModule(pl.LightningDataModule):
                 F.col("features").cast("array<float>").alias("features"),
                 F.col("label").cast("array<float>").alias("label"),
             )
-            .repartition(partitions)
+            .repartition(self.num_partitions)
         )
 
     def _train_valid_split(self, df):
@@ -62,23 +64,30 @@ class PetastormDataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         """Setup dataframe for petastorm spark converter"""
-        # Get prepared data
-        prepared_df = self._prepare_data()
-        # train/valid Split
-        self.train_data, self.valid_data = self._train_valid_split(df=prepared_df)
+        with warnings.catch_warnings():
+            warnings.simplefilter(action="ignore", category=FutureWarning)
 
-        # setup petastorm data conversion from Spark to PyTorch
-        self.converter_train = make_spark_converter(self.train_data)
-        self.converter_valid = make_spark_converter(self.valid_data)
+            # read data
+            df = self.spark.read.parquet(self.input_path).cache()
+            # train/valid Split
+            self.train_data, self.valid_data = self._train_valid_split(df=df)
+            print(self.train_data.count(), self.valid_data.count())
+
+            # setup petastorm data conversion from Spark to PyTorch
+            self.converter_train = make_spark_converter(self.train_data)
+            self.converter_valid = make_spark_converter(self.valid_data)
 
     def _dataloader(self, converter):
-        with converter.make_torch_dataloader(
-            batch_size=self.batch_size,
-            num_epochs=1,
-            workers_count=self.workers_count,
-        ) as dataloader:
-            for batch in dataloader:
-                yield batch
+        transform = v2.Compose([ToSparseTensor()])
+        with warnings.catch_warnings():
+            warnings.simplefilter(action="ignore", category=FutureWarning)
+            with converter.make_torch_dataloader(
+                batch_size=self.batch_size,
+                num_epochs=1,
+                workers_count=self.workers_count,
+            ) as dataloader:
+                for batch in dataloader:
+                    yield transform(batch)
 
     def train_dataloader(self):
         for batch in self._dataloader(self.converter_train):
