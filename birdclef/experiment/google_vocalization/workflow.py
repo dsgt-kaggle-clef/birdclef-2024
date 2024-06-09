@@ -28,7 +28,7 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
-    batch_size = luigi.IntParameter(default=100)
+    batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
 
@@ -120,12 +120,12 @@ class HyperparameterGrid:
         # Model and Loss mappings
         model_params = {
             "linear": LinearClassifier,
-            # "two_layer": TwoLayerClassifier,
+            "two_layer": TwoLayerClassifier,
         }
         loss_params = [
             "bce",
-            # "asl",
-            # "sigmoidf1",
+            "asl",
+            "sigmoidf1",
         ]
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
@@ -156,21 +156,21 @@ class Workflow(luigi.Task):
             for loss in loss_params
         ]
 
-        # # TwoLayer model grid search
-        # model, loss = "two_layer", "bce"
-        # yield [
-        #     TrainClassifier(
-        #         input_path=self.input_path,
-        #         default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
-        #         label_col=label_col,
-        #         feature_col=feature_col,
-        #         loss=loss,
-        #         model=model,
-        #         hidden_layer_size=hidden_layer_size,
-        #         two_layer=True,
-        #     )
-        #     for hidden_layer_size in hidden_layers
-        # ]
+        # TwoLayer model grid search
+        model, loss = "two_layer", "bce"
+        yield [
+            TrainClassifier(
+                input_path=self.input_path,
+                default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
+                label_col=label_col,
+                feature_col=feature_col,
+                loss=loss,
+                model=model,
+                hidden_layer_size=hidden_layer_size,
+                two_layer=True,
+            )
+            for hidden_layer_size in hidden_layers
+        ]
 
 
 def parse_args():
