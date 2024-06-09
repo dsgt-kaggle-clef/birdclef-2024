@@ -125,7 +125,7 @@ def parse_args():
         "intermediate-path": f"intermediate/{default_out_folder}/v1",
         "output-path": f"processed/{default_out_folder}/v1",
         "google-model-path": DEFAULT_VOCALIZATION_MODEL_PATH,
-        "encodec-chunk-size": 1,
+        "encodec-chunk-size": 5,
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
         "workers": 2,
     }
