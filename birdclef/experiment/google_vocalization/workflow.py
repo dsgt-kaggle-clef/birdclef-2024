@@ -94,7 +94,7 @@ class TrainClassifier(luigi.Task):
 
             # trainer
             trainer = pl.Trainer(
-                max_epochs=50,
+                max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_root_dir,
