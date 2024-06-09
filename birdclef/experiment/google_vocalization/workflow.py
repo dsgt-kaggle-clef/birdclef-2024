@@ -28,7 +28,7 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
-    batch_size = luigi.IntParameter(default=1000)
+    batch_size = luigi.IntParameter(default=500)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
 
@@ -106,6 +106,9 @@ class TrainClassifier(luigi.Task):
                 ],
             )
             trainer.fit(model, data_module)
+
+            # finish W&B
+            wandb.finish()
 
         # write the output
         with self.output().open("w") as f:
