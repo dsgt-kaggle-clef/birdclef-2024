@@ -107,9 +107,6 @@ class TrainClassifier(luigi.Task):
             )
             trainer.fit(model, data_module)
 
-            # end W&B
-            wandb.finish()
-
         # write the output
         with self.output().open("w") as f:
             f.write("")
