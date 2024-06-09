@@ -1,9 +1,20 @@
+import lightning as pl
 import pandas as pd
+import torch
 from tqdm import tqdm
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
 
 from .data import GoogleVocalizationSoundscapeDataModule
+
+
+class PassthroughModel(pl.LightningModule):
+    def forward(self, x):
+        return x
+
+    def predict_step(self, batch, batch_idx):
+        batch["prediction"] = torch.sigmoid(batch["logits"])
+        return batch
 
 
 def make_submission(
@@ -23,8 +34,8 @@ def make_submission(
         num_workers=num_workers,
         limit=limit,
     )
-    dm.setup()
-    predictions = dm.predict_dataloader()
+    trainer = pl.Trainer()
+    predictions = trainer.predict(PassthroughModel(), dm)
 
     rows = []
     for batch in tqdm(predictions):

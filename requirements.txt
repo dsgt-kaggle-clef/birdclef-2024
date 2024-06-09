@@ -3,15 +3,13 @@ pandas
 matplotlib
 pyspark >= 3.4.0
 pyarrow
-imageio
 scikit-learn
 torch
 torchvision
 torchaudio
 librosa
 sox
-transformers
-tensorflow
+tensorflow==2.15.0
 tensorflow_hub
 luigi
 google-api-python-client

@@ -1,9 +1,8 @@
 from pathlib import Path
 
-import pytorch_lightning as pl
+import lightning as pl
 import torch
 from torch.utils.data import DataLoader, IterableDataset
-from torchvision.transforms import v2
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
 from birdclef.label.inference import GoogleVocalizationInference
@@ -62,12 +61,6 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
         return self._load_data(iter_start, iter_end)
 
 
-class LogitToSigmoid(v2.Transform):
-    def forward(self, batch):
-        batch["prediction"] = torch.sigmoid(batch["logits"])
-        return batch
-
-
 class GoogleVocalizationSoundscapeDataModule(pl.LightningDataModule):
     def __init__(
         self,
@@ -104,7 +97,4 @@ class GoogleVocalizationSoundscapeDataModule(pl.LightningDataModule):
         )
 
     def predict_dataloader(self):
-        transform = v2.Compose([LogitToSigmoid()])
-        for batch in self.dataloader:
-            batch = transform(batch)
-            yield batch
+        return self.dataloader
