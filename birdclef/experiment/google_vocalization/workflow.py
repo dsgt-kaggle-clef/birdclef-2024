@@ -1,3 +1,4 @@
+import itertools
 import os
 from argparse import ArgumentParser
 from pathlib import Path
@@ -28,6 +29,7 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
+    hyper_params = luigi.OptionalDictParameter(default={})
     batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
@@ -70,6 +72,7 @@ class TrainClassifier(luigi.Task):
                     num_labels,
                     loss=self.loss,
                     hidden_layer_size=self.hidden_layer_size,
+                    hp_kwargs=self.hyper_params,
                 )
             else:
                 model = torch_model(num_features, num_labels, loss=self.loss)
@@ -122,11 +125,17 @@ class HyperparameterGrid:
             "linear": LinearClassifier,
             "two_layer": TwoLayerClassifier,
         }
-        loss_params = [
-            "bce",
-            "asl",
-            "sigmoidf1",
-        ]
+        loss_params = {
+            "bce": {},
+            "asl": {
+                "gamma_neg": [0, 2, 4],
+                "gamma_pos": [0, 1],
+            },
+            "sigmoidf1": {
+                "S": [-1, -15, -30],
+                "E": [0, 1, 2],
+            },
+        }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
 
@@ -135,6 +144,17 @@ class Workflow(luigi.Task):
     input_path = luigi.Parameter()
     output_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
+
+    def generate_loss_hp_params(self, loss_params):
+        """Generate all combinations of hyperparameters for a given loss function."""
+        if not loss_params:
+            return [{}]
+
+        keys, values = zip(*loss_params.items())
+        combinations = [
+            dict(zip(keys, combination)) for combination in itertools.product(*values)
+        ]
+        return combinations
 
     def run(self):
         label_col, feature_col = "logits", "embedding"
@@ -157,20 +177,23 @@ class Workflow(luigi.Task):
         ]
 
         # TwoLayer model grid search
-        model, loss = "two_layer", "bce"
-        yield [
-            TrainClassifier(
-                input_path=self.input_path,
-                default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
-                label_col=label_col,
-                feature_col=feature_col,
-                loss=loss,
-                model=model,
-                hidden_layer_size=hidden_layer_size,
-                two_layer=True,
-            )
-            for hidden_layer_size in hidden_layers
-        ]
+        model, hidden_layer_size = "two_layer", 256
+        for loss in loss_params:
+            for hp_params in self.generate_loss_hp_params(loss_params[loss]):
+                param_log = [f"{k}{v}" for k, v in hp_params.items()]
+                if len(param_log) > 0:
+                    param_name = "-".join(param_log)
+                    yield TrainClassifier(
+                        input_path=self.input_path,
+                        default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}",
+                        label_col=label_col,
+                        feature_col=feature_col,
+                        loss=loss,
+                        model=model,
+                        hidden_layer_size=hidden_layer_size,
+                        hyper_params=hp_params,
+                        two_layer=True,
+                    )
 
 
 def parse_args():

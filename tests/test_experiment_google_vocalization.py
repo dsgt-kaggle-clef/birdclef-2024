@@ -108,8 +108,15 @@ def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
 
 # run this both gpu and cpu, but only the gpu if it's available
 # pytest parametrize
-@pytest.mark.parametrize("device, loss", itertools.product(["cpu", "gpu"], ["bce"]))
-def test_two_layer_torch_model(spark, temp_spark_data_path, device, loss):
+@pytest.mark.parametrize(
+    "device, loss, hp_kwargs",
+    itertools.product(
+        ["cpu", "gpu"],
+        ["asl"],
+        [{"gamma_neg": 0, "gamma_pos": 0}, {"gamma_neg": 2, "gamma_pos": 1}],
+    ),
+)
+def test_two_layer_torch_model(spark, temp_spark_data_path, device, loss, hp_kwargs):
     if device == "gpu" and not torch.cuda.is_available():
         pytest.skip()
     # Params
@@ -133,7 +140,7 @@ def test_two_layer_torch_model(spark, temp_spark_data_path, device, loss):
 
     # test losses
     model = TwoLayerClassifier(
-        num_features, num_labels, loss=loss, hidden_layer_size=64
+        num_features, num_labels, loss=loss, hidden_layer_size=64, hp_kwargs=hp_kwargs
     )
 
     trainer = pl.Trainer(
