@@ -17,6 +17,7 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
         soundscape_path: str,
         metadata_path: str,
         model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
+        limit=None,
     ):
         """Initialize the dataset.
 
@@ -25,6 +26,8 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
         :param model_path: The path to the model.
         """
         self.soundscapes = sorted(Path(soundscape_path).glob("**/*.ogg"))
+        if limit is not None:
+            self.soundscapes = self.soundscapes[:limit]
         self.metadata_path = metadata_path
         self.model_path = model_path
 
@@ -73,6 +76,7 @@ class GoogleVocalizationSoundscapeDataModule(pl.LightningDataModule):
         model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
         batch_size: int = 32,
         num_workers: int = 0,
+        limit=None,
     ):
         """Initialize the data module.
 
@@ -88,11 +92,12 @@ class GoogleVocalizationSoundscapeDataModule(pl.LightningDataModule):
         self.model_path = model_path
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.limit = limit
 
     def setup(self, stage=None):
         self.dataloader = DataLoader(
             GoogleVocalizationSoundscapeDataset(
-                self.soundscape_path, self.metadata_path, self.model_path
+                self.soundscape_path, self.metadata_path, self.model_path, self.limit
             ),
             batch_size=self.batch_size,
             num_workers=self.num_workers,

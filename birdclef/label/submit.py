@@ -13,6 +13,7 @@ def make_submission(
     model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
     batch_size: int = 32,
     num_workers: int = 0,
+    limit=None,
 ):
     dm = GoogleVocalizationSoundscapeDataModule(
         soundscape_path=soundscape_path,
@@ -20,6 +21,7 @@ def make_submission(
         model_path=model_path,
         batch_size=batch_size,
         num_workers=num_workers,
+        limit=limit,
     )
     dm.setup()
     predictions = dm.predict_dataloader()
@@ -55,4 +57,5 @@ if __name__ == "__main__":
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
         num_workers=2,
+        limit=100,
     )
