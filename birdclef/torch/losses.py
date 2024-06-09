@@ -37,9 +37,10 @@ class Hill(nn.Module):
     .. math::
         Loss = y \times (1-p_{m})^\gamma\log(p_{m}) + (1-y) \times -(\lambda-p){p}^2
 
-    where : math:`\lambda-p` is the weighting term to down-weight the loss for possibly false negatives,
-          : math:`m` is a margin parameter,
-          : math:`\gamma` is a commonly used value same as Focal loss.
+    where::
+        math:`\lambda-p` is the weighting term to down-weight the loss for possibly false negatives,
+        math:`m` is a margin parameter,
+        math:`\gamma` is a commonly used value same as Focal loss.
 
     .. note::
         Sigmoid will be done in loss.
@@ -107,9 +108,10 @@ class SPLC(nn.Module):
         &L_{SPLC}^+ = loss^+(p)
         &L_{SPLC}^- = \mathbb{I}(p\leq \tau)loss^-(p) + (1-\mathbb{I}(p\leq \tau))loss^+(p)
 
-    where :math:'\tau' is a threshold to identify missing label
-          :math:`$\mathbb{I}(\cdot)\in\{0,1\}$` is the indicator function,
-          :math: $loss^+(\cdot), loss^-(\cdot)$ refer to loss functions for positives and negatives, respectively.
+    where::
+        math:'\tau' is a threshold to identify missing label
+        math:`$\mathbb{I}(\cdot)\in\{0,1\}$` is the indicator function,
+        math: $loss^+(\cdot), loss^-(\cdot)$ refer to loss functions for positives and negatives, respectively.
 
     .. note::
         SPLC can be combined with various multi-label loss functions.
@@ -359,3 +361,79 @@ class ASLSingleLabel(nn.Module):
             loss = loss.mean()
 
         return loss
+
+
+class ROCStarLoss(nn.Module):
+    """
+    Nearly direct loss function for AUC.
+    See article,
+    C. Reiss, "Roc-star : An objective function for ROC-AUC that actually works."
+    https://github.com/iridiumblue/articles/blob/master/roc_star.md
+        inputs: `Tensor`. Targets (labels).  Float either 0.0 or 1.0 .
+        target: `Tensor` . Predictions.
+        gamma  : `Float` Gamma, as derived from last epoch.
+        _epoch_true: `Tensor`.  Targets (labels) from last epoch.
+        epoch_pred : `Tensor`.  Predicions from last epoch.
+    """
+
+    def __init__(self, gamma, epoch_true, epoch_pred):
+        super(ROCStarLoss, self).__init__()
+        self.gamma = gamma
+        self.epoch_true = epoch_true
+        self.epoch_pred = epoch_pred
+
+    def forward(self, inputs, target):
+        # convert labels to boolean
+        y_true = inputs >= 0.50
+        epoch_true = self.epoch_true >= 0.50
+
+        # if batch is either all true or false return small random stub value.
+        if torch.sum(y_true) == 0 or torch.sum(y_true) == y_true.shape[0]:
+            return torch.sum(target) * 1e-8
+
+        pos = target[y_true]
+        neg = target[~y_true]
+
+        epoch_pos = self.epoch_pred[epoch_true]
+        epoch_neg = self.epoch_pred[~epoch_true]
+
+        # Take random subsamples of the training set, both positive and negative.
+        max_pos = 1000  # Max number of positive training samples
+        max_neg = 1000  # Max number of positive training samples
+        cap_pos = epoch_pos.shape[0]
+        epoch_pos = epoch_pos[torch.rand_like(epoch_pos) < max_pos / cap_pos]
+        epoch_neg = epoch_neg[torch.rand_like(epoch_neg) < max_neg / cap_pos]
+
+        ln_pos = pos.shape[0]
+        ln_neg = neg.shape[0]
+
+        # sum positive batch elements agaionst (subsampled) negative elements
+        if ln_pos > 0:
+            pos_expand = pos.view(-1, 1).expand(-1, epoch_neg.shape[0]).reshape(-1)
+            neg_expand = epoch_neg.repeat(ln_pos)
+
+            diff2 = neg_expand - pos_expand + self.gamma
+            l2 = diff2[diff2 > 0]
+            m2 = l2 * l2
+        else:
+            m2 = torch.tensor([0], dtype=torch.float).cuda()
+
+        # Similarly, compare negative batch elements against (subsampled) positive elements
+        if ln_neg > 0:
+            pos_expand = epoch_pos.view(-1, 1).expand(-1, ln_neg).reshape(-1)
+            neg_expand = neg.repeat(epoch_pos.shape[0])
+
+            diff3 = neg_expand - pos_expand + self.gamma
+            l3 = diff3[diff3 > 0]
+            m3 = l3 * l3
+        else:
+            m3 = torch.tensor([0], dtype=torch.float).cuda()
+
+        if (torch.sum(m2) + torch.sum(m3)) != 0:
+            res2 = torch.sum(m2) / max_pos + torch.sum(m3) / max_neg
+        else:
+            res2 = torch.sum(m2) + torch.sum(m3)
+
+        res2 = torch.where(torch.isnan(res2), torch.zeros_like(res2), res2)
+
+        return res2

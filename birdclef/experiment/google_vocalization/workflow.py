@@ -7,100 +7,18 @@ import luigi
 import luigi.contrib.gcs
 import pytorch_lightning as pl
 import torch
-from lightning.pytorch.profilers import AdvancedProfiler
-from pyspark.ml import Pipeline
-from pyspark.ml.feature import SQLTransformer
-from pyspark.ml.functions import vector_to_array
-from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
+import wandb
+from pytorch_lightning.callbacks import LearningRateFinder
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch import nn
 
 from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
-from birdclef.transforms import TransformEmbedding
 from birdclef.utils import spark_resource
 
 from .data import PetastormDataModule
 from .model import LinearClassifier, TwoLayerClassifier
-
-
-class ProcessBase(luigi.Task):
-    input_path = luigi.Parameter()
-    output_path = luigi.Parameter()
-    sample_col = luigi.Parameter(default="species_id")
-    num_partitions = luigi.OptionalIntParameter(default=32)
-    sample_id = luigi.OptionalIntParameter(default=None)
-    num_sample_id = luigi.OptionalIntParameter(default=10)
-
-    def output(self):
-        if self.sample_id is None:
-            # save both the model pipeline and the dataset
-            return luigi.contrib.gcs.GCSTarget(f"{self.output_path}/data/_SUCCESS")
-        else:
-            return luigi.contrib.gcs.GCSTarget(
-                f"{self.output_path}/data/sample_id={self.sample_id}/_SUCCESS"
-            )
-
-    @property
-    def feature_columns(self) -> list:
-        raise NotImplementedError()
-
-    def pipeline(self) -> Pipeline:
-        raise NotImplementedError()
-
-    def transform(self, model, df, features) -> DataFrame:
-        transformed = model.transform(df)
-
-        if self.sample_id is not None:
-            transformed = (
-                transformed.withColumn(
-                    "sample_id",
-                    F.crc32(F.col(self.sample_col).cast("string")) % self.num_sample_id,
-                )
-                .where(F.col("sample_id") == self.sample_id)
-                .drop("sample_id")
-            )
-
-        for c in features:
-            # check if the feature is a vector and convert it to an array
-            if "array" in transformed.schema[c].simpleString():
-                continue
-            transformed = transformed.withColumn(c, vector_to_array(F.col(c)))
-        return transformed
-
-    def run(self):
-        with spark_resource(
-            **{"spark.sql.shuffle.partitions": self.num_partitions}
-        ) as spark:
-            df = spark.read.parquet(self.input_path)
-
-            model = self.pipeline().fit(df)
-            transformed = self.transform(model, df, self.feature_columns)
-
-            if self.sample_id is None:
-                output_path = f"{self.output_path}/data"
-            else:
-                output_path = f"{self.output_path}/data/sample_id={self.sample_id}"
-
-            transformed.repartition(self.num_partitions).write.mode(
-                "overwrite"
-            ).parquet(output_path)
-
-
-class ProcessEmbeddings(ProcessBase):
-    sql_statement = luigi.Parameter()
-
-    @property
-    def feature_columns(self) -> list:
-        return ["sigmoid_logits"]
-
-    def pipeline(self):
-        transform = TransformEmbedding(input_col="embedding", output_col="embedding")
-        return Pipeline(
-            stages=[transform, SQLTransformer(statement=self.sql_statement)]
-        )
 
 
 class TrainClassifier(luigi.Task):
@@ -111,8 +29,9 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
+    hyper_params = luigi.OptionalDictParameter(default={})
     batch_size = luigi.IntParameter(default=1000)
-    num_partitions = luigi.IntParameter(default=32)
+    num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
 
     def output(self):
@@ -125,15 +44,14 @@ class TrainClassifier(luigi.Task):
         model_params, loss_params, _ = hp.get_hyperparameter_config()
         # get model and loss objects
         torch_model = model_params[self.model]
-        loss_fn = loss_params[self.loss]()
 
         with spark_resource() as spark:
             # data module
             data_module = PetastormDataModule(
                 spark,
                 self.input_path,
-                self.feature_col,
                 self.label_col,
+                self.feature_col,
                 self.batch_size,
                 self.num_partitions,
             )
@@ -152,13 +70,16 @@ class TrainClassifier(luigi.Task):
                 model = torch_model(
                     num_features,
                     num_labels,
-                    loss=loss_fn,
+                    loss=self.loss,
                     hidden_layer_size=self.hidden_layer_size,
+                    hp_kwargs=self.hyper_params,
                 )
             else:
-                model = torch_model(num_features, num_labels, loss=loss_fn)
+                model = torch_model(num_features, num_labels, loss=self.loss)
 
             # initialise the wandb logger and name your wandb project
+            print(f"\nwanb name: {Path(self.default_root_dir).name}")
+            print(f"wanb save dir: {self.default_root_dir}\n")
             wandb_logger = WandbLogger(
                 project="birdclef-2024",
                 name=Path(self.default_root_dir).name,
@@ -174,25 +95,23 @@ class TrainClassifier(luigi.Task):
                 save_last=True,
             )
 
-            # profiler
-            profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
-
             # trainer
             trainer = pl.Trainer(
-                max_epochs=10,
+                max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
-                # reload_dataloaders_every_n_epochs=1,
+                reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_root_dir,
                 logger=wandb_logger,
                 callbacks=[
-                    EarlyStopping(monitor="val_loss", mode="min"),
+                    EarlyStopping(monitor="val_auroc", mode="max"),
                     model_checkpoint,
+                    LearningRateFinder(),
                 ],
-                profiler=profiler,
             )
-
-            # fit model
             trainer.fit(model, data_module)
+
+            # finish W&B
+            wandb.finish()
 
         # write the output
         with self.output().open("w") as f:
@@ -207,9 +126,15 @@ class HyperparameterGrid:
             "two_layer": TwoLayerClassifier,
         }
         loss_params = {
-            "bce": nn.BCEWithLogitsLoss,
-            "asl": AsymmetricLossOptimized,
-            "sigmoid_f1": SigmoidF1,
+            "bce": {},
+            "asl": {
+                "gamma_neg": [0, 2, 4],
+                "gamma_pos": [0, 1],
+            },
+            "sigmoidf1": {
+                "S": [-1, -15, -30],
+                "E": [0, 1, 2],
+            },
         }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
@@ -220,56 +145,55 @@ class Workflow(luigi.Task):
     output_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
 
+    def generate_loss_hp_params(self, loss_params):
+        """Generate all combinations of hyperparameters for a given loss function."""
+        if not loss_params:
+            return [{}]
+
+        keys, values = zip(*loss_params.items())
+        combinations = [
+            dict(zip(keys, combination)) for combination in itertools.product(*values)
+        ]
+        return combinations
+
     def run(self):
-        # training workflow parameters
-        train_model = True
-        sample_col = "sigmoid_logits"
-        sql_statement = "SELECT id, sigmoid_logits, embedding FROM __THIS__"
-        # process bird embeddings
-        yield ProcessEmbeddings(
-            input_path=self.input_path,
-            output_path=self.output_path,
-            sample_col=sample_col,
-            sql_statement=sql_statement,
-        )
+        label_col, feature_col = "logits", "embedding"
+        # get hyperparameter config
+        hp = HyperparameterGrid()
+        _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
-        # train classifier
-        if train_model:
-            label_col, feature_col = "sigmoid_logits", "embedding"
-            # Parameters
-            # Retrieve hyperparameter configuration
-            hp = HyperparameterGrid()
-            _, loss_params, hidden_layers = hp.get_hyperparameter_config()
+        # Linear model grid search
+        model = "linear"
+        yield [
+            TrainClassifier(
+                input_path=self.input_path,
+                default_root_dir=f"{self.default_root_dir}-{model}-{loss}",
+                label_col=label_col,
+                feature_col=feature_col,
+                loss=loss,
+                model=model,
+            )
+            for loss in loss_params
+        ]
 
-            # Linear model grid search
-            model = "linear"
-            yield [
-                TrainClassifier(
-                    input_path=f"{self.output_path}/data",
-                    default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
-                    label_col=label_col,
-                    feature_col=feature_col,
-                    loss=loss,
-                    model=model,
-                )
-                for loss in list(loss_params.keys())
-            ]
-
-            # TwoLayer model grid search
-            model, loss = "two_layer", "bce"
-            yield [
-                TrainClassifier(
-                    input_path=f"{self.output_path}/data",
-                    default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-hidden{hidden_layer_size}",
-                    label_col=label_col,
-                    feature_col=feature_col,
-                    loss=loss,
-                    model=model,
-                    hidden_layer_size=hidden_layer_size,
-                    two_layer=True,
-                )
-                for hidden_layer_size in hidden_layers
-            ]
+        # TwoLayer model grid search
+        model, hidden_layer_size = "two_layer", 256
+        for loss in loss_params:
+            for hp_params in self.generate_loss_hp_params(loss_params[loss]):
+                param_log = [f"{k}{v}" for k, v in hp_params.items()]
+                if len(param_log) > 0:
+                    param_name = "-".join(param_log)
+                    yield TrainClassifier(
+                        input_path=self.input_path,
+                        default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}",
+                        label_col=label_col,
+                        feature_col=feature_col,
+                        loss=loss,
+                        model=model,
+                        hidden_layer_size=hidden_layer_size,
+                        hyper_params=hp_params,
+                        two_layer=True,
+                    )
 
 
 def parse_args():
@@ -283,13 +207,13 @@ def parse_args():
     parser.add_argument(
         "--train-data-path",
         type=str,
-        default="data/intermediate/google_embeddings/v1",
+        default="data/processed/google_embeddings/v1",
         help="Root directory for training data in GCS",
     )
     parser.add_argument(
         "--output-name-path",
         type=str,
-        default="data/intermediate/google_embeddings/v1-transformed",
+        default="data/processed/google_embeddings/v1-transformed",
         help="GCS path for output Parquet files",
     )
     parser.add_argument(
