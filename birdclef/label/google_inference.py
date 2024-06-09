@@ -42,6 +42,21 @@ class GoogleVocalizationInference(Inference):
                 for label in index_to_label
             ]
         )
+        
+    def load(self, path: str, window: int = 5 * 32_000) -> np.ndarray:
+        """Load an audio file.
+
+        :param path: The absolute path to the audio file.
+        """
+        audio, _ = torchaudio.load(path)
+        audio = audio.squeeze().numpy()
+        # right pad the audio so we can reshape into a rectangle
+        n = audio.shape[0]
+        if n % window != 0:
+            audio = audio[: n - (n % window)]
+        # reshape the audio into windowsize chunks
+        audio = audio.reshape(-1, window)
+        return audio
 
     def predict(
         self,
@@ -51,17 +66,15 @@ class GoogleVocalizationInference(Inference):
 
         :param path: The absolute path to the audio file.
         :param window: The size of the window to split the audio into.
-        """
-        audio = torchaudio.load(path)[0].numpy()[0]
-        embeddings = []
-        logits = []
-        window = 5 * 32_000
-        for i in range(0, len(audio), window):
-            clip = audio[i : i + window]
-            if len(clip) < window:
-                clip = np.concatenate([clip, np.zeros(window - len(clip))])
-            result = self.model.infer_tf(clip[None, :])
-            embeddings.append(result[1][0].numpy())
-            clip_logits = np.concatenate([result[0].numpy(), -np.inf], axis=None)
-            logits.append(clip_logits[self.model_indices])
+        """    
+        audio = self.load(path, window)
+        logits, embeddings = self.model.infer_tf(audio)
+        logits = logits.numpy()
+        embeddings = embeddings.numpy()
+
+        # extract relevant logits, using -inf as the base condition
+        neg_inf = np.ones((audio.shape[0], 1)) * -np.inf
+        logits = np.concatenate([logits, neg_inf], axis=1)
+        logits = logits[:, self.model_indices]
+
         return embeddings, logits

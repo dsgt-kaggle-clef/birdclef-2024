@@ -13,11 +13,14 @@ from birdclef.utils import get_spark
 @pytest.fixture(scope="session")
 def temp_spark_data_path(spark, tmp_path_factory):
     spark = get_spark()
-    data = [Row(features=[float(i) for i in range(10)], label=i % 2) for i in range(10)]
+    data = [
+        Row(features=[float(i) for i in range(10)], label=[float(i) for i in range(10)])
+        for i in range(10)
+    ]
     schema = StructType(
         [
             StructField("embeddings", ArrayType(FloatType()), False),
-            StructField("species_name", LongType(), False),
+            StructField("species_name", ArrayType(FloatType()), False),
         ]
     )
     # create DF

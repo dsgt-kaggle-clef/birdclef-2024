@@ -5,15 +5,15 @@ from torchmetrics.classification import MultilabelAUROC
 
 
 class LinearClassifier(pl.LightningModule):
-    def __init__(self, num_features: int, num_classes: int):
+    def __init__(self, num_features: int, num_labels: int, loss=nn.BCEWithLogitsLoss()):
         super().__init__()
         self.num_features = num_features
-        self.num_classes = num_classes
+        self.num_labels = num_labels
+        self.loss = loss
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
-        self.loss = nn.BCEWithLogitsLoss()
-        self.model = nn.Linear(num_features, num_classes)
+        self.model = nn.Linear(num_features, num_labels)
         self.learning_rate = 0.002
-        self.auroc_score = MultilabelAUROC(num_classes=num_classes, average="weighted")
+        self.auroc_score = MultilabelAUROC(num_labels=num_labels, average="weighted")
 
     def forward(self, x):
         return self.model(x)
@@ -27,6 +27,7 @@ class LinearClassifier(pl.LightningModule):
         logits = self(x)
         loss = self.loss(logits, y)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
+        y = y.to(torch.long)  # ensure target tensor is of type long
         self.log(
             f"{step_name}_auroc",
             self.auroc_score(logits, y),
@@ -50,13 +51,13 @@ class TwoLayerClassifier(LinearClassifier):
         self,
         num_features: int,
         num_classes: int,
-        asl_loss: bool = False,
-        hidden_layer_size: int = 768,
+        hidden_layer_size: int = 64,
+        **kwargs,
     ):
-        super().__init__(num_features, num_classes, asl_loss)
+        super().__init__(num_features, num_classes, **kwargs)
         self.model = nn.Sequential(
             nn.Linear(num_features, hidden_layer_size),
-            nn.BatchNorm1d(num_features),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_layer_size, num_classes),
         )

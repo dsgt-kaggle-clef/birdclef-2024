@@ -75,7 +75,7 @@ class Workflow(luigi.Task):
 
     google_model_path = luigi.Parameter()
     encodec_chunk_size = luigi.IntParameter()
-    partitions = luigi.IntParameter(default=64)
+    partitions = luigi.IntParameter(default=16)
 
     def run(self):
         metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
