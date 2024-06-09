@@ -7,7 +7,7 @@ import luigi.contrib.gcs
 import pytorch_lightning as pl
 import torch
 import wandb
-from lightning.pytorch.profilers import AdvancedProfiler
+from pytorch_lightning.callbacks import LearningRateFinder
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
@@ -42,7 +42,6 @@ class TrainClassifier(luigi.Task):
         model_params, loss_params, _ = hp.get_hyperparameter_config()
         # get model and loss objects
         torch_model = model_params[self.model]
-        loss_fn = loss_params[self.loss]()
 
         with spark_resource() as spark:
             # data module
@@ -69,11 +68,11 @@ class TrainClassifier(luigi.Task):
                 model = torch_model(
                     num_features,
                     num_labels,
-                    loss=loss_fn,
+                    loss=self.loss,
                     hidden_layer_size=self.hidden_layer_size,
                 )
             else:
-                model = torch_model(num_features, num_labels, loss=loss_fn)
+                model = torch_model(num_features, num_labels, loss=self.loss)
 
             # initialise the wandb logger and name your wandb project
             print(f"\nwanb name: {Path(self.default_root_dir).name}")
@@ -101,8 +100,9 @@ class TrainClassifier(luigi.Task):
                 default_root_dir=self.default_root_dir,
                 logger=wandb_logger,
                 callbacks=[
-                    EarlyStopping(monitor="val_auroc", mode="min"),
+                    EarlyStopping(monitor="val_auroc", mode="max"),
                     model_checkpoint,
+                    LearningRateFinder(),
                 ],
             )
             trainer.fit(model, data_module)
@@ -122,11 +122,11 @@ class HyperparameterGrid:
             "linear": LinearClassifier,
             # "two_layer": TwoLayerClassifier,
         }
-        loss_params = {
-            "bce": nn.BCEWithLogitsLoss,
-            # "asl": AsymmetricLossOptimized,
-            # "sigmoid_f1": SigmoidF1,
-        }
+        loss_params = [
+            "bce",
+            # "asl",
+            # "sigmoidf1",
+        ]
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
 
@@ -147,13 +147,13 @@ class Workflow(luigi.Task):
         yield [
             TrainClassifier(
                 input_path=self.input_path,
-                default_root_dir=f"{self.default_root_dir}-{model}-{loss.replace('_', '-')}",
+                default_root_dir=f"{self.default_root_dir}-{model}-{loss}",
                 label_col=label_col,
                 feature_col=feature_col,
                 loss=loss,
                 model=model,
             )
-            for loss in list(loss_params.keys())
+            for loss in loss_params
         ]
 
         # # TwoLayer model grid search

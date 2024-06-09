@@ -80,11 +80,6 @@ def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
     input_path = temp_spark_data_path
     feature_col = "embeddings"
     label_col = "species_name"
-    losses = {
-        "bce": nn.BCEWithLogitsLoss(),
-        "asl": AsymmetricLossOptimized(),
-        "sigmoidf1": SigmoidF1(),
-    }
 
     data_module = PetastormDataModule(
         spark=spark,
@@ -101,8 +96,7 @@ def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
     num_labels = int(len(data_module.train_data.select("label").first()["label"]))
 
     # test losses
-    loss_fn = losses[loss]
-    model = LinearClassifier(num_features, num_labels, loss_fn)
+    model = LinearClassifier(num_features, num_labels, loss=loss)
 
     trainer = pl.Trainer(
         accelerator=device,
@@ -122,11 +116,6 @@ def test_two_layer_torch_model(spark, temp_spark_data_path, device, loss):
     input_path = temp_spark_data_path
     feature_col = "embeddings"
     label_col = "species_name"
-    losses = {
-        "bce": nn.BCEWithLogitsLoss(),
-        "asl": AsymmetricLossOptimized(),
-        "sigmoidf1": SigmoidF1(),
-    }
 
     data_module = PetastormDataModule(
         spark=spark,
@@ -143,9 +132,8 @@ def test_two_layer_torch_model(spark, temp_spark_data_path, device, loss):
     num_labels = int(len(data_module.train_data.select("label").first()["label"]))
 
     # test losses
-    loss_fn = losses[loss]
     model = TwoLayerClassifier(
-        num_features, num_labels, loss=loss_fn, hidden_layer_size=64
+        num_features, num_labels, loss=loss, hidden_layer_size=64
     )
 
     trainer = pl.Trainer(

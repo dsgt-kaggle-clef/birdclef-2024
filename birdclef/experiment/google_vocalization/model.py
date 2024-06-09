@@ -3,14 +3,28 @@ import torch
 from torch import nn
 from torchmetrics.classification import MultilabelAUROC, MultilabelF1Score
 
+from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
+
+
+class LossFunctions:
+    def get_hyperparameter_config(self):
+        loss_params = {
+            "bce": nn.BCEWithLogitsLoss,
+            "asl": AsymmetricLossOptimized,
+            "sigmoidf1": SigmoidF1,
+        }
+        return loss_params
+
 
 class LinearClassifier(pl.LightningModule):
-    def __init__(self, num_features: int, num_labels: int, loss=nn.BCEWithLogitsLoss()):
+    def __init__(self, num_features: int, num_labels: int, loss: str = "bce"):
         super().__init__()
         self.num_features = num_features
         self.num_labels = num_labels
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
-        self.loss = nn.BCEWithLogitsLoss()
+        loss_fn = LossFunctions()
+        loss_params = loss_fn.get_hyperparameter_config()
+        self.loss = loss_params[loss]()
         self.model = nn.Linear(num_features, num_labels)
         self.learning_rate = 0.002
         self.f1_score = MultilabelF1Score(num_labels=num_labels, average="macro")
