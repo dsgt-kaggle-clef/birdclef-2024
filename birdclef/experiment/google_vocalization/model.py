@@ -38,7 +38,7 @@ class LinearClassifier(pl.LightningModule):
         return optimizer
 
     def _run_step(self, batch, batch_idx, step_name):
-        x, y = batch["features"], batch["label"]
+        x, y = batch["features"], batch["label"].to_dense()
         logits = self(x)
         # sigmoid the label and apply a threshold
         y_sigmoid = torch.sigmoid(y)

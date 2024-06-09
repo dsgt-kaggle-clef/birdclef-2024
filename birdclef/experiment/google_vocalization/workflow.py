@@ -28,7 +28,7 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
-    batch_size = luigi.IntParameter(default=500)
+    batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
 

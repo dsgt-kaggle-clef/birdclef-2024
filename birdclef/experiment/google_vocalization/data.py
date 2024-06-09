@@ -5,6 +5,15 @@ from pathlib import Path
 import pytorch_lightning as pl
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
+from torchvision.transforms import v2
+
+
+# create a transform to convert a list of numbers into a sparse tensor
+class ToSparseTensor(v2.Transform):
+    def forward(self, batch):
+        if "label" in batch:
+            batch["label"] = batch["label"].to_sparse()
+        return batch
 
 
 class PetastormDataModule(pl.LightningDataModule):
@@ -69,6 +78,7 @@ class PetastormDataModule(pl.LightningDataModule):
             self.converter_valid = make_spark_converter(self.valid_data)
 
     def _dataloader(self, converter):
+        transform = v2.Compose([ToSparseTensor()])
         with warnings.catch_warnings():
             warnings.simplefilter(action="ignore", category=FutureWarning)
             with converter.make_torch_dataloader(
@@ -77,7 +87,7 @@ class PetastormDataModule(pl.LightningDataModule):
                 workers_count=self.workers_count,
             ) as dataloader:
                 for batch in dataloader:
-                    yield batch
+                    yield transform(batch)
 
     def train_dataloader(self):
         for batch in self._dataloader(self.converter_train):
