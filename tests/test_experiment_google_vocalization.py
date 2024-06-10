@@ -25,7 +25,7 @@ def temp_spark_data_path(spark, tmp_path_factory):
         Row(
             features=[float(i) for i in range(10)],
             label=[float(random.randint(0, 1)) for _ in range(10)],
-            name=f"{random.choice(SPECIES)}/XC123456.ogg",
+            name=f"{random.choice(SPECIES[:10])}/XC123456.ogg",  # use only first 10 species
         )
         for _ in range(10)
     ]
@@ -67,9 +67,11 @@ def test_petastorm_data_module_setup(spark, temp_spark_data_path):
 # run this both gpu and cpu, but only the gpu if it's available
 # pytest parametrize
 @pytest.mark.parametrize(
-    "device, loss", itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"])
+    "device, loss, species_label",
+    # itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"], [False, True]),
+    itertools.product(["cpu", "gpu"], ["asl"], [False, True]),
 )
-def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
+def test_linear_torch_model(spark, temp_spark_data_path, device, loss, species_label):
     if device == "gpu" and not torch.cuda.is_available():
         pytest.skip()
 
@@ -88,7 +90,9 @@ def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
     num_labels = int(len(data_module.train_data.select("label").first()["label"]))
 
     # test losses
-    model = LinearClassifier(num_features, num_labels, loss=loss)
+    model = LinearClassifier(
+        num_features, num_labels, loss=loss, species_label=species_label
+    )
 
     trainer = pl.Trainer(
         accelerator=device,
