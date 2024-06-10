@@ -1,20 +1,18 @@
 import itertools
 import random
-import warnings
 
 import pytest
 import pytorch_lightning as pl
 import torch
 from pyspark.sql import Row
-from pyspark.sql.types import ArrayType, FloatType, StructField, StructType
-from torch import nn
+from pyspark.sql.types import ArrayType, FloatType, StringType, StructField, StructType
 
+from birdclef.config import SPECIES
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
 from birdclef.experiment.google_vocalization.model import (
     LinearClassifier,
     TwoLayerClassifier,
 )
-from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import get_spark
 
 
@@ -27,13 +25,15 @@ def temp_spark_data_path(spark, tmp_path_factory):
         Row(
             features=[float(i) for i in range(10)],
             label=[float(random.randint(0, 1)) for _ in range(10)],
+            name=f"{random.choice(SPECIES)}/XC123456.ogg",
         )
-        for i in range(10)
+        for _ in range(10)
     ]
     schema = StructType(
         [
             StructField("embeddings", ArrayType(FloatType()), False),
             StructField("species_name", ArrayType(FloatType()), False),
+            StructField("name", StringType(), False),
         ]
     )
     # create DF
@@ -46,15 +46,11 @@ def temp_spark_data_path(spark, tmp_path_factory):
 
 # Test Function
 def test_petastorm_data_module_setup(spark, temp_spark_data_path):
-    input_path = temp_spark_data_path
-    feature_col = "embeddings"
-    label_col = "species_name"
-
     data_module = PetastormDataModule(
         spark=spark,
-        input_path=input_path,
-        feature_col=feature_col,
-        label_col=label_col,
+        input_path=temp_spark_data_path,
+        feature_col="embeddings",
+        label_col="species_name",
     )
     data_module.setup()
     print(f"train data shape: {data_module.train_data.count()}")
@@ -76,16 +72,12 @@ def test_petastorm_data_module_setup(spark, temp_spark_data_path):
 def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
     if device == "gpu" and not torch.cuda.is_available():
         pytest.skip()
-    # Params
-    input_path = temp_spark_data_path
-    feature_col = "embeddings"
-    label_col = "species_name"
 
     data_module = PetastormDataModule(
         spark=spark,
-        input_path=input_path,
-        feature_col=feature_col,
-        label_col=label_col,
+        input_path=temp_spark_data_path,
+        feature_col="embeddings",
+        label_col="species_name",
     )
     data_module.setup()
 

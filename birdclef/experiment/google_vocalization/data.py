@@ -5,7 +5,10 @@ from pathlib import Path
 import pytorch_lightning as pl
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
+from pyspark.sql.types import IntegerType
 from torchvision.transforms import v2
+
+from birdclef.config import SPECIES
 
 
 # create a transform to convert a list of numbers into a sparse tensor
@@ -48,6 +51,7 @@ class PetastormDataModule(pl.LightningDataModule):
             .select(
                 F.col("features").cast("array<float>").alias("features"),
                 F.col("label").cast("array<float>").alias("label"),
+                F.col("species_index"),
             )
             .repartition(self.num_partitions)
         )
@@ -67,11 +71,25 @@ class PetastormDataModule(pl.LightningDataModule):
         with warnings.catch_warnings():
             warnings.simplefilter(action="ignore", category=FutureWarning)
 
+            # UDF to retrieve species index
+            def species_index(name):
+                species = Path(name).parent.name
+                species_idx = SPECIES.index(species)
+                return species_idx
+
+            # register the UDF
+            species_index_udf = F.udf(species_index, IntegerType())
+
             # read data
             df = self.spark.read.parquet(self.input_path).cache()
+            df_species = df.withColumn("species_index", species_index_udf("name"))
+
             # train/valid Split
-            self.train_data, self.valid_data = self._train_valid_split(df=df)
-            print(self.train_data.count(), self.valid_data.count())
+            self.train_data, self.valid_data = self._train_valid_split(df=df_species)
+            print(
+                f"\ntrain count: {self.train_data.count()}\n"
+                f"valid count: {self.valid_data.count()}\n",
+            )
 
             # setup petastorm data conversion from Spark to PyTorch
             self.converter_train = make_spark_converter(self.train_data)
