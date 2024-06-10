@@ -199,7 +199,7 @@ class Workflow(luigi.Task):
                         model=model,
                         hidden_layer_size=hidden_layer_size,
                         hyper_params=hp_params,
-                        species_label=self.species_label,
+                        species_label=species_label,
                         two_layer=True,
                     )
 
