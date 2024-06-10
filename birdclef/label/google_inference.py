@@ -42,14 +42,14 @@ class GoogleVocalizationInference(Inference):
                 for label in index_to_label
             ]
         )
-        
+
     def load(self, path: str, window: int = 5 * 32_000) -> np.ndarray:
         """Load an audio file.
 
         :param path: The absolute path to the audio file.
         """
         audio, _ = torchaudio.load(path)
-        audio = audio.squeeze().numpy()
+        audio = audio.squeeze()
         # right pad the audio so we can reshape into a rectangle
         n = audio.shape[0]
         if n % window != 0:
@@ -59,15 +59,14 @@ class GoogleVocalizationInference(Inference):
         return audio
 
     def predict(
-        self,
-        path: str,
+        self, path: str, window: int = 5 * 32_000, **kwargs
     ) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Get embeddings and logits for a single audio file.
 
         :param path: The absolute path to the audio file.
         :param window: The size of the window to split the audio into.
-        """    
-        audio = self.load(path, window)
+        """
+        audio = self.load(path, window).numpy()
         logits, embeddings = self.model.infer_tf(audio)
         logits = logits.numpy()
         embeddings = embeddings.numpy()

@@ -13,6 +13,7 @@ class Inference:
     def predict(
         self,
         path: str,
+        **kwargs,
     ) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Get embeddings and logits for a single audio file.
 
@@ -29,16 +30,12 @@ class Inference:
         """
         path = f"{root}/{suffix}"
         embeddings, logits = self.predict(path)
-        indices = range(len(embeddings))
+        indices = range(embeddings.shape[0])
         df = pd.DataFrame(
-            {
-                "name": f"{suffix}",
-                "chunk_5s": indices,
-                "embedding": embeddings,
-            }
+            {"name": f"{suffix}", "chunk_5s": indices, "embedding": embeddings.tolist()}
         )
-        if logits:
-            df["logits"] = logits
+        if logits is not None:
+            df["logits"] = logits.tolist()
         return df
 
     def predict_species_df(

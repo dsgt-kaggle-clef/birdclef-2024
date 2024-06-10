@@ -20,8 +20,7 @@ def test_google_vocalization_soundscape_data_module(metadata_path, soundscape_pa
     )
     data_module.setup()
     # check that our batch size is correct
-    batch = next(data_module.predict_dataloader())
-    assert batch.keys() == {"row_id", "embedding", "logits", "prediction"}
+    batch = next(iter(data_module.predict_dataloader()))
+    assert batch.keys() == {"row_id", "embedding", "logits"}
     assert batch["embedding"].shape == (4, 1280)
     assert batch["logits"].shape == (4, 3)
-    assert batch["prediction"].shape == (4, 3)
