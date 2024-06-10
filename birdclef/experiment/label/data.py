@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader, IterableDataset
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
-from birdclef.label.google_inference import GoogleVocalizationInference
+from birdclef.inference.vocalization import GoogleVocalizationInference
 
 
 class GoogleVocalizationSoundscapeDataset(IterableDataset):

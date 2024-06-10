@@ -7,7 +7,7 @@ import tensorflow_hub as hub
 import torchaudio
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
-from birdclef.label.inference import Inference
+from birdclef.inference.base import Inference
 
 
 def compile_tflite_model(model):
