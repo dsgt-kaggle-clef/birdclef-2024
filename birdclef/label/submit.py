@@ -61,24 +61,41 @@ if __name__ == "__main__":
     # this is for testing the performance against soundscape data
     import luigi
 
+    from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
     from birdclef.tasks import RsyncGCSFiles
+
+    from .google_inference import compile_tflite_model
+
+    class MakeTFLiteModel(luigi.Task):
+        output_path = luigi.Parameter()
+
+        def output(self):
+            return luigi.LocalTarget(self.output_path)
+
+        def run(self):
+            Path(self.output_path).parent.mkdir(exist_ok=True, parents=True)
+            compile_tflite_model(
+                DEFAULT_VOCALIZATION_MODEL_PATH,
+                self.output_path,
+            )
 
     luigi.build(
         [
             RsyncGCSFiles(
                 src_path="gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/unlabeled_soundscapes",
                 dst_path="/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
-            )
+            ),
+            MakeTFLiteModel(output_path="/mnt/data/models/vocalization_model.tflite"),
         ],
         scheduler_host="services.us-central1-a.c.dsgt-clef-2024.internal",
     )
 
     # 10 samples in 570 seconds
-    make_submission(
-        "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
-        "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
-        "/mnt/data/tmp/submission.csv",
-        num_workers=0,
-        limit=10,
-        should_profile=True,
-    )
+    # make_submission(
+    #     "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
+    #     "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
+    #     "/mnt/data/tmp/submission.csv",
+    #     num_workers=0,
+    #     limit=10,
+    #     should_profile=True,
+    # )
