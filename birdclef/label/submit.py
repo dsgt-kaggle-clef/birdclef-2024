@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import lightning as pl
 import pandas as pd
 import torch
+from lightning.pytorch.profilers import AdvancedProfiler
 from tqdm import tqdm
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
@@ -25,7 +28,9 @@ def make_submission(
     batch_size: int = 32,
     num_workers: int = 0,
     limit=None,
+    should_profile=False,
 ):
+    Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
     dm = GoogleVocalizationSoundscapeDataModule(
         soundscape_path=soundscape_path,
         metadata_path=metadata_path,
@@ -34,7 +39,11 @@ def make_submission(
         num_workers=num_workers,
         limit=limit,
     )
-    trainer = pl.Trainer()
+    kwargs = dict()
+    if should_profile:
+        profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+        kwargs["profiler"] = profiler
+    trainer = pl.Trainer(**kwargs)
     predictions = trainer.predict(PassthroughModel(), dm)
 
     rows = []
@@ -63,10 +72,13 @@ if __name__ == "__main__":
         ],
         scheduler_host="services.us-central1-a.c.dsgt-clef-2024.internal",
     )
+
+    # 10 samples in 570 seconds
     make_submission(
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
-        num_workers=2,
-        limit=100,
+        num_workers=0,
+        limit=10,
+        should_profile=True,
     )
