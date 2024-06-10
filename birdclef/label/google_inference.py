@@ -26,7 +26,7 @@ class GoogleVocalizationInference(Inference):
         self,
         metadata_path: str,
         model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
-        use_tflite: bool = False,
+        use_compiled: bool = False,
     ):
         self.model = hub.load(model_path)
         self.metadata = pd.read_csv(metadata_path)
@@ -37,8 +37,8 @@ class GoogleVocalizationInference(Inference):
             self.metadata,
             self.model_labels_df,
         )
-        self.use_tflite = use_tflite
-        if use_tflite:
+        self.use_compiled = use_compiled
+        if use_compiled:
             self.compiled_model = tf.lite.Interpreter(
                 model_content=compile_tflite_model(self.model)
             )
@@ -103,7 +103,7 @@ class GoogleVocalizationInference(Inference):
         :param window: The size of the window to split the audio into.
         """
         audio = self.load(path, window).numpy()
-        if self.use_tflite:
+        if self.use_compiled:
             logits, embeddings = self._infer_tflite(audio)
         else:
             logits, embeddings = self.model.infer_tf(audio)
