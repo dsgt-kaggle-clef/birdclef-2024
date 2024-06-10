@@ -1,6 +1,6 @@
 import pandas as pd
 
-from birdclef.label.google_inference import GoogleVocalizationInference
+from birdclef.inference.vocalization import GoogleVocalizationInference
 
 
 def test_google_vocalization_inference_init(metadata_path):
@@ -14,6 +14,15 @@ def test_google_vocalization_inference_init(metadata_path):
 
 def test_google_vocalization_inference_predict(metadata_path):
     gvi = GoogleVocalizationInference(metadata_path)
+    embedding, logits = gvi.predict(metadata_path.parent / "file_0.ogg")
+    # 10 seconds of audio means there are 2 rows
+    # and a single species means there's only a single logit
+    assert embedding.shape == (2, 1280)
+    assert logits.shape == (2, 3)
+
+
+def test_google_vocalization_inference_predict_tflite(metadata_path):
+    gvi = GoogleVocalizationInference(metadata_path, use_compiled=True)
     embedding, logits = gvi.predict(metadata_path.parent / "file_0.ogg")
     # 10 seconds of audio means there are 2 rows
     # and a single species means there's only a single logit

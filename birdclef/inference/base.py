@@ -4,8 +4,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
-
 
 class Inference:
     """Class to perform inference on audio files."""

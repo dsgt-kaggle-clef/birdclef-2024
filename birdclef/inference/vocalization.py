@@ -1,12 +1,22 @@
-from functools import partial
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import tensorflow_hub as hub
 import torchaudio
-from tqdm import tqdm
 
-from birdclef.label.inference import Inference
+from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
+from birdclef.inference.base import Inference
+
+
+def compile_tflite_model(model):
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS,  # enable TensorFlow Lite ops.
+        tf.lite.OpsSet.SELECT_TF_OPS,  # enable TensorFlow ops.
+    ]
+    return converter.convert()
 
 
 class GoogleVocalizationInference(Inference):
@@ -15,7 +25,8 @@ class GoogleVocalizationInference(Inference):
     def __init__(
         self,
         metadata_path: str,
-        model_path: str = "https://kaggle.com/models/google/bird-vocalization-classifier/frameworks/TensorFlow2/variations/bird-vocalization-classifier/versions/4",
+        model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
+        use_compiled: bool = False,
     ):
         self.model = hub.load(model_path)
         self.metadata = pd.read_csv(metadata_path)
@@ -26,6 +37,12 @@ class GoogleVocalizationInference(Inference):
             self.metadata,
             self.model_labels_df,
         )
+        self.use_compiled = use_compiled
+        if use_compiled:
+            self.compiled_model = tf.lite.Interpreter(
+                model_content=compile_tflite_model(self.model)
+            )
+            self.compiled_model.allocate_tensors()
 
     def _get_index_subset(
         self, metadata: pd.DataFrame, model_labels: pd.DataFrame
@@ -58,6 +75,25 @@ class GoogleVocalizationInference(Inference):
         audio = audio.reshape(-1, window)
         return audio
 
+    def _infer_tflite(self, audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Perform inference using a TFLite model.
+
+        :param audio: The audio data to perform inference on.
+        """
+        input_details = self.compiled_model.get_input_details()
+        output_details = self.compiled_model.get_output_details()
+
+        embeddings = []
+        logits = []
+        for x in audio:
+            self.compiled_model.set_tensor(input_details[0]["index"], x.reshape(1, -1))
+            self.compiled_model.invoke()
+            embeddings.append(
+                self.compiled_model.get_tensor(output_details[0]["index"])
+            )
+            logits.append(self.compiled_model.get_tensor(output_details[1]["index"]))
+        return np.stack(logits).squeeze(), np.stack(embeddings).squeeze()
+
     def predict(
         self, path: str, window: int = 5 * 32_000, **kwargs
     ) -> tuple[list[np.ndarray], list[np.ndarray]]:
@@ -67,9 +103,12 @@ class GoogleVocalizationInference(Inference):
         :param window: The size of the window to split the audio into.
         """
         audio = self.load(path, window).numpy()
-        logits, embeddings = self.model.infer_tf(audio)
-        logits = logits.numpy()
-        embeddings = embeddings.numpy()
+        if self.use_compiled:
+            logits, embeddings = self._infer_tflite(audio)
+        else:
+            logits, embeddings = self.model.infer_tf(audio)
+            logits = logits.numpy()
+            embeddings = embeddings.numpy()
 
         # extract relevant logits, using -inf as the base condition
         neg_inf = np.ones((audio.shape[0], 1)) * -np.inf

@@ -27,6 +27,7 @@ def make_submission(
     model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
     batch_size: int = 32,
     num_workers: int = 0,
+    use_compiled: bool = True,
     limit=None,
     should_profile=False,
 ):
@@ -36,6 +37,7 @@ def make_submission(
         metadata_path=metadata_path,
         model_path=model_path,
         batch_size=batch_size,
+        use_compiled=use_compiled,
         num_workers=num_workers,
         limit=limit,
     )
@@ -61,6 +63,7 @@ if __name__ == "__main__":
     # this is for testing the performance against soundscape data
     import luigi
 
+    from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
     from birdclef.tasks import RsyncGCSFiles
 
     luigi.build(
@@ -68,7 +71,7 @@ if __name__ == "__main__":
             RsyncGCSFiles(
                 src_path="gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/unlabeled_soundscapes",
                 dst_path="/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
-            )
+            ),
         ],
         scheduler_host="services.us-central1-a.c.dsgt-clef-2024.internal",
     )

@@ -13,14 +13,15 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from birdclef.experiment.google_vocalization.data import PetastormDataModule
+from birdclef.experiment.encodec_model.data import PetastormDataModule
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import spark_resource
 
 
 class TrainClassifier(luigi.Task):
-    input_path = luigi.Parameter()
+    input_encodec_path = luigi.Parameter()
+    input_google_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
     label_col = luigi.Parameter()
     feature_col = luigi.Parameter()
@@ -28,7 +29,6 @@ class TrainClassifier(luigi.Task):
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
     hyper_params = luigi.OptionalDictParameter(default={})
-    species_label = luigi.OptionalBoolParameter(default=False)
     batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
@@ -48,7 +48,8 @@ class TrainClassifier(luigi.Task):
             # data module
             data_module = PetastormDataModule(
                 spark,
-                self.input_path,
+                self.input_encodec_path,
+                self.input_google_path,
                 self.label_col,
                 self.feature_col,
                 self.batch_size,
@@ -93,6 +94,8 @@ class TrainClassifier(luigi.Task):
                 monitor="val_loss",
                 save_last=True,
             )
+            
+            torch.set_float32_matmul_precision("high")
 
             # trainer
             trainer = pl.Trainer(
@@ -140,7 +143,8 @@ class HyperparameterGrid:
 
 
 class Workflow(luigi.Task):
-    input_path = luigi.Parameter()
+    input_encodec_path = luigi.Parameter()
+    input_google_path = luigi.Parameter()
     output_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
 
@@ -162,19 +166,16 @@ class Workflow(luigi.Task):
         _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
         # Linear model grid search
-        model, species_label = "linear", True
-        default_dir = f"{self.default_root_dir}-{model}-{loss}"
-        if species_label:
-            default_dir = f"{self.default_root_dir}-{model}-{loss}-species-label"
+        model = "linear"
         yield [
             TrainClassifier(
-                input_path=self.input_path,
-                default_root_dir=default_dir,
+                input_encodec_path=self.input_encodec_path,
+                input_google_path=self.input_google_path,
+                default_root_dir=f"{self.default_root_dir}-{model}-{loss}",
                 label_col=label_col,
                 feature_col=feature_col,
                 loss=loss,
                 model=model,
-                species_label=species_label,
             )
             for loss in loss_params
         ]
@@ -187,7 +188,8 @@ class Workflow(luigi.Task):
                 if len(param_log) > 0:
                     param_name = "-".join(param_log)
                     yield TrainClassifier(
-                        input_path=self.input_path,
+                        input_encodec_path=self.input_encodec_path,
+                        input_google_path=self.input_google_path,
                         default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}",
                         label_col=label_col,
                         feature_col=feature_col,
@@ -208,21 +210,27 @@ def parse_args():
         help="Root directory for birdclef-2024 in GCS",
     )
     parser.add_argument(
-        "--train-data-path",
+        "--train-data-encodec-path",
+        type=str,
+        default="data/processed/encodec_embeddings/v1",
+        help="Root directory for Encodec training data in GCS",
+    )
+    parser.add_argument(
+        "--train-data-google-path",
         type=str,
         default="data/processed/google_embeddings/v1",
-        help="Root directory for training data in GCS",
+        help="Root directory for Google training data in GCS",
     )
     parser.add_argument(
         "--output-name-path",
         type=str,
-        default="data/processed/google_embeddings/v1-transformed",
+        default="data/processed/encodec_embeddings/v1-transformed",
         help="GCS path for output Parquet files",
     )
     parser.add_argument(
         "--model-dir-path",
         type=str,
-        default="models/torch-v1-google",
+        default="models/torch-v1-encodec",
         help="Default root directory for storing the pytorch classifier runs",
     )
     parser.add_argument(
@@ -237,14 +245,16 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     # Input and output paths for training workflow
-    input_path = f"{args.gcs_root_path}/{args.train_data_path}"
+    input_encodec_path = f"{args.gcs_root_path}/{args.train_data_encodec_path}"
+    input_google_path = f"{args.gcs_root_path}/{args.train_data_google_path}"
     output_path = f"{args.gcs_root_path}/{args.output_name_path}"
     default_root_dir = f"{args.gcs_root_path}/{args.model_dir_path}"
 
     luigi.build(
         [
             Workflow(
-                input_path=input_path,
+                input_encodec_path=input_encodec_path,
+                input_google_path=input_google_path,
                 output_path=output_path,
                 default_root_dir=default_root_dir,
             )
