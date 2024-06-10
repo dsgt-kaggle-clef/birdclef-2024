@@ -4,13 +4,16 @@ import luigi
 import pandas as pd
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
-from birdclef.label.inference import GoogleVocalizationInference
+from birdclef.label.encodec_inference import EncodecInference
+from birdclef.label.google_inference import GoogleVocalizationInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
 from birdclef.utils import spark_resource
 
 
 class EmbedSpeciesAudio(luigi.Task):
     """Embed all audio files for a species and save to a parquet file."""
+
+    model = luigi.Parameter()
 
     # used to pull audio data from GCS down locally
     remote_root = luigi.Parameter()
@@ -20,7 +23,9 @@ class EmbedSpeciesAudio(luigi.Task):
     metadata_path = luigi.Parameter()
     species = luigi.Parameter()
     output_path = luigi.Parameter()
-    model_path = luigi.Parameter()
+
+    google_model_path = luigi.Parameter()
+    encodec_chunk_size = luigi.IntParameter()
 
     def output(self):
         return maybe_gcs_target(
@@ -33,20 +38,33 @@ class EmbedSpeciesAudio(luigi.Task):
             dst_path=f"{self.local_root}/{self.audio_path}/{self.species}",
         )
 
-        gvi = GoogleVocalizationInference(
-            metadata_path=f"{self.remote_root}/{self.metadata_path}",
-            model_path=self.model_path,
-        )
+        inference = self.get_inference()
         out_path = f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
-        df = gvi.predict_species_df(
+        df = inference.predict_species_df(
             f"{self.local_root}/{self.audio_path}",
             self.species,
             out_path,
         )
         print(df.head())
 
+    def get_inference(self):
+        metadata_path = f"{self.remote_root}/{self.metadata_path}"
+        if self.model == "google":
+            return GoogleVocalizationInference(
+                metadata_path=metadata_path,
+                model_path=self.google_model_path,
+            )
+        elif self.model == "encodec":
+            return EncodecInference(
+                metadata_path=metadata_path,
+                chunk_size=self.encodec_chunk_size,
+            )
+        raise ValueError(f"Invalid model: {self.model}")
+
 
 class Workflow(luigi.Task):
+    model = luigi.Parameter()
+
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
 
@@ -55,7 +73,8 @@ class Workflow(luigi.Task):
     intermediate_path = luigi.Parameter()
     output_path = luigi.Parameter()
 
-    model_path = luigi.Parameter()
+    google_model_path = luigi.Parameter()
+    encodec_chunk_size = luigi.IntParameter()
     partitions = luigi.IntParameter(default=16)
 
     def run(self):
@@ -65,13 +84,15 @@ class Workflow(luigi.Task):
         tasks = []
         for species in species_list:
             task = EmbedSpeciesAudio(
+                model=self.model,
                 remote_root=self.remote_root,
                 local_root=self.local_root,
                 audio_path=self.audio_path,
                 metadata_path=self.metadata_path,
                 species=species,
                 output_path=self.intermediate_path,
-                model_path=self.model_path,
+                google_model_path=self.google_model_path,
+                encodec_chunk_size=self.encodec_chunk_size,
             )
             tasks.append(task)
         yield tasks
@@ -87,50 +108,31 @@ class Workflow(luigi.Task):
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument(
-        "--remote-root",
+        "model",
         type=str,
-        default="gs://dsgt-clef-birdclef-2024/data",
+        choices=["google", "encodec"],
     )
-    parser.add_argument(
-        "--local-root",
-        type=str,
-        default="/mnt/data",
+    args = parser.parse_args()
+
+    default_out_folder = (
+        "google_embeddings" if args.model == "google" else "encodec_embeddings"
     )
-    parser.add_argument(
-        "--audio-path",
-        type=str,
-        default="raw/birdclef-2024/train_audio",
-    )
-    parser.add_argument(
-        "--metadata-path",
-        type=str,
-        default="raw/birdclef-2024/train_metadata.csv",
-    )
-    parser.add_argument(
-        "--intermediate-path",
-        type=str,
-        default="intermediate/google_embeddings/v1",
-    )
-    parser.add_argument(
-        "--output-path",
-        type=str,
-        default="processed/google_embeddings/v1",
-    )
-    parser.add_argument(
-        "--model-path",
-        type=str,
-        default=DEFAULT_VOCALIZATION_MODEL_PATH,
-    )
-    parser.add_argument(
-        "--scheduler-host",
-        type=str,
-        default="services.us-central1-a.c.dsgt-clef-2024.internal",
-    )
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=2,
-    )
+    defaults = {
+        "remote-root": "gs://dsgt-clef-birdclef-2024/data",
+        "local-root": "/mnt/data",
+        "audio-path": "raw/birdclef-2024/train_audio",
+        "metadata-path": "raw/birdclef-2024/train_metadata.csv",
+        "intermediate-path": f"intermediate/{default_out_folder}/v1",
+        "output-path": f"processed/{default_out_folder}/v1",
+        "google-model-path": DEFAULT_VOCALIZATION_MODEL_PATH,
+        "encodec-chunk-size": 5,
+        "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
+        "workers": 2,
+    }
+
+    for arg, default in defaults.items():
+        parser.add_argument(f"--{arg}", type=type(default), default=default)
+
     return parser.parse_args()
 
 
