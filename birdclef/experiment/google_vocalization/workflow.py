@@ -72,9 +72,15 @@ class TrainClassifier(luigi.Task):
                     loss=self.loss,
                     hidden_layer_size=self.hidden_layer_size,
                     hp_kwargs=self.hyper_params,
+                    species_label=self.species_label,
                 )
             else:
-                model = torch_model(num_features, num_labels, loss=self.loss)
+                model = torch_model(
+                    num_features,
+                    num_labels,
+                    loss=self.loss,
+                    species_label=self.species_label,
+                )
 
             # initialise the wandb logger and name your wandb project
             print(f"\nwanb name: {Path(self.default_root_dir).name}")
@@ -178,7 +184,7 @@ class Workflow(luigi.Task):
             )
 
         # TwoLayer model grid search
-        model, hidden_layer_size = "two_layer", 256
+        model, hidden_layer_size, species_label = "two_layer", 256, False
         for loss in loss_params:
             for hp_params in self.generate_loss_hp_params(loss_params[loss]):
                 param_log = [f"{k}{v}" for k, v in hp_params.items()]
@@ -193,6 +199,7 @@ class Workflow(luigi.Task):
                         model=model,
                         hidden_layer_size=hidden_layer_size,
                         hyper_params=hp_params,
+                        species_label=self.species_label,
                         two_layer=True,
                     )
 
