@@ -163,11 +163,11 @@ class Workflow(luigi.Task):
 
         # Linear model grid search
         model, species_label = "linear", True
-        default_dir = f"{self.default_root_dir}-{model}-{loss}"
-        if species_label:
-            default_dir = f"{self.default_root_dir}-{model}-{loss}-species-label"
-        yield [
-            TrainClassifier(
+        for loss in loss_params:
+            default_dir = f"{self.default_root_dir}-{model}-{loss}"
+            if species_label:
+                default_dir = f"{self.default_root_dir}-{model}-{loss}-species-label"
+            yield TrainClassifier(
                 input_path=self.input_path,
                 default_root_dir=default_dir,
                 label_col=label_col,
@@ -176,8 +176,6 @@ class Workflow(luigi.Task):
                 model=model,
                 species_label=species_label,
             )
-            for loss in loss_params
-        ]
 
         # TwoLayer model grid search
         model, hidden_layer_size = "two_layer", 256
