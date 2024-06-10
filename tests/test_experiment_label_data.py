@@ -1,4 +1,4 @@
-from birdclef.label.data import (
+from birdclef.experiment.label.data import (
     GoogleVocalizationSoundscapeDataModule,
     GoogleVocalizationSoundscapeDataset,
 )

@@ -1,5 +1,5 @@
 from birdclef.config import SPECIES
-from birdclef.label.submit import make_submission
+from birdclef.experiment.label.submit import make_submission
 
 
 def test_make_submission(soundscape_path, metadata_full_path, tmp_path):

@@ -6,7 +6,7 @@ import torchaudio
 from encodec import EncodecModel
 from encodec.utils import convert_audio
 
-from birdclef.label.inference import Inference
+from birdclef.inference.base import Inference
 
 
 class EncodecInference(Inference):
