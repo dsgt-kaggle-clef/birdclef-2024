@@ -81,7 +81,7 @@ if __name__ == "__main__":
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
-        num_workers=0,
-        limit=10,
-        should_profile=True,
+        num_workers=2,
+        limit=20,
+        should_profile=False,
     )

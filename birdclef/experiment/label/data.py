@@ -45,7 +45,7 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
             # now we yield a dictionary
             for idx, embedding, logit in zip(indices, embeddings, logits):
                 yield {
-                    "row_id": f"{path.stem}_{idx*5}",
+                    "row_id": f"{path.stem}_{(idx+1)*5}",
                     "embedding": embedding,
                     "logits": logit,
                 }
