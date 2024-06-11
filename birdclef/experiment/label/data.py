@@ -18,6 +18,7 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
         metadata_path: str,
         model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
         use_compiled: bool = True,
+        max_length: int = 4 * 60 / 5,
         limit=None,
     ):
         """Initialize the dataset.
@@ -25,8 +26,12 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
         :param soundscape_path: The path to the soundscape data.
         :param metadata_path: The path to the metadata.
         :param model_path: The path to the model.
+        :param use_compiled: Whether to use the compiled model.
+        :param max_length: The maximum length of the soundscape.
+        :param limit: The number of files to limit the dataset to.
         """
         self.soundscapes = sorted(Path(soundscape_path).glob("**/*.ogg"))
+        self.max_length = int(max_length)
         if limit is not None:
             self.soundscapes = self.soundscapes[:limit]
         self.metadata_path = metadata_path
@@ -35,7 +40,10 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
 
     def _load_data(self, iter_start, iter_end):
         model = GoogleVocalizationInference(
-            self.metadata_path, self.model_path, use_compiled=self.use_compiled
+            self.metadata_path,
+            self.model_path,
+            use_compiled=self.use_compiled,
+            max_length=self.max_length,
         )
         for i in range(iter_start, iter_end):
             path = self.soundscapes[i]
@@ -89,25 +97,16 @@ class GoogleVocalizationSoundscapeDataModule(pl.LightningDataModule):
         :param limit: The number of files to limit the dataset to.
         """
         super().__init__()
-        self.soundscape_path = soundscape_path
-        self.metadata_path = metadata_path
-        self.model_path = model_path
-        self.batch_size = batch_size
-        self.use_compiled = use_compiled
-        self.num_workers = num_workers
-        self.limit = limit
-
-    def setup(self, stage=None):
         self.dataloader = DataLoader(
             GoogleVocalizationSoundscapeDataset(
-                self.soundscape_path,
-                self.metadata_path,
-                self.model_path,
-                self.use_compiled,
-                self.limit,
+                soundscape_path,
+                metadata_path,
+                model_path=model_path,
+                use_compiled=use_compiled,
+                limit=limit,
             ),
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
+            batch_size=batch_size,
+            num_workers=num_workers,
         )
 
     def predict_dataloader(self):

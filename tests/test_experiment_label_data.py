@@ -18,7 +18,6 @@ def test_google_vocalization_soundscape_data_module(metadata_path, soundscape_pa
         metadata_path,
         batch_size=4,
     )
-    data_module.setup()
     # check that our batch size is correct
     batch = next(iter(data_module.predict_dataloader()))
     assert batch.keys() == {"row_id", "embedding", "logits"}
