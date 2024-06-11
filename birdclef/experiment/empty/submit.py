@@ -72,6 +72,6 @@ if __name__ == "__main__":
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
         num_workers=2,
-        limit=20,
+        limit=1000,
         should_profile=False,
     )
