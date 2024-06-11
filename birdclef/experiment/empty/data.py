@@ -48,8 +48,8 @@ class SoundscapeDataset(IterableDataset):
             indices = range(n_chunks)
 
             # now we yield a dictionary
-            for idx, audio_row in zip(indices, audio):
-                yield {"row_id": f"{path.stem}_{(idx+1)*5}", "audio": audio_row}
+            for idx in indices:
+                yield {"row_id": f"{path.stem}_{(idx+1)*5}"}
 
     def __iter__(self):
         # https://pytorch.org/docs/stable/data.html#torch.utils.data.IterableDataset
