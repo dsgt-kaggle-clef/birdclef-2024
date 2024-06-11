@@ -53,36 +53,36 @@ class LinearClassifier(pl.LightningModule):
             batch["species_index"].to_dense(),
         )
         logits = self(x)
-        logits.requires_grad_(True)  # ensure logits require gradients
         # sigmoid the label and apply a threshold
         y_sigmoid = torch.sigmoid(y)
         y_threshold = (y_sigmoid > 0.5).float()
+        label = y_threshold
 
         if self.species_label:
             # compute z: row-wise sum of elements in y, cast as boolean
             z = y_threshold.sum(dim=1, keepdim=True) > 0
-            z = z.float()  # convert boolean tensor to float
+            indicator = z.float()  # convert boolean tensor to float
             # compute s: one-hot encoded species matrix (NxK)
-            s = torch.zeros_like(logits)
+            species_matrix = torch.zeros_like(logits)
             spidx = spidx.to(torch.int64)
-            s.scatter_(1, spidx.unsqueeze(1), 1.0)
-            # compute r: r = y + z * s
-            r = (y_threshold + z) * s
-            r *= logits  # ensure gradient tracking
+            species_matrix = species_matrix.scatter(1, spidx.unsqueeze(1), 1.0)
+            # compute r: r = y + (s * z)
+            # multiply the indicator by the species matrix and then add it to the original
+            r = y_threshold + (species_matrix * indicator)
             # update logits for the loss computation
-            logits = r
+            label = torch.logical_or(label, r).float()
 
-        loss = self.loss(logits, y_threshold)
+        loss = self.loss(logits, label)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
         self.log(
             f"{step_name}_f1",
-            self.f1_score(logits, y_threshold),
+            self.f1_score(logits, label),
             on_step=False,
             on_epoch=True,
         )
         self.log(
             f"{step_name}_auroc",
-            self.auroc_score(logits, y_threshold.to(torch.long)),
+            self.auroc_score(logits, label.to(torch.long)),
             on_step=False,
             on_epoch=True,
         )
