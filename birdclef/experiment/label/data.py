@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import lightning as pl
@@ -53,14 +54,15 @@ class GoogleVocalizationSoundscapeDataset(IterableDataset):
     def __iter__(self):
         # https://pytorch.org/docs/stable/data.html#torch.utils.data.IterableDataset
         worker_info = torch.utils.data.get_worker_info()
+        start, end = 0, len(self.soundscapes)
         if worker_info is None:
-            iter_start = 0
-            iter_end = len(self.soundscapes)
+            iter_start = start
+            iter_end = end
         else:
-            per_worker = int(len(self.soundscapes) / worker_info.num_workers)
+            per_worker = int(math.ceil((end - start) / float(worker_info.num_workers)))
             worker_id = worker_info.id
-            iter_start = worker_id * per_worker
-            iter_end = min(iter_start + per_worker, len(self.soundscapes))
+            iter_start = start + worker_id * per_worker
+            iter_end = min(iter_start + per_worker, end)
 
         return self._load_data(iter_start, iter_end)
 

@@ -70,7 +70,7 @@ class GoogleVocalizationInference(Inference):
         audio = audio[0]
         # right pad the audio so we can reshape into a rectangle
         n = audio.shape[0]
-        if n % window != 0:
+        if (n % window) != 0:
             audio = torch.concatenate([audio, torch.zeros(window - (n % window))])
         # reshape the audio into windowsize chunks
         audio = audio.reshape(-1, window)
