@@ -3,12 +3,11 @@ from pathlib import Path
 import lightning as pl
 import pandas as pd
 import torch
-from lightning.pytorch.profilers import AdvancedProfiler
 from tqdm import tqdm
 
-from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
+from birdclef.config import SPECIES
 
-from .data import GoogleVocalizationSoundscapeDataModule
+from .data import SoundscapeDataModule
 
 
 class PassthroughModel(pl.LightningModule):
@@ -16,7 +15,7 @@ class PassthroughModel(pl.LightningModule):
         return x
 
     def predict_step(self, batch, batch_idx):
-        batch["prediction"] = torch.sigmoid(batch["logits"])
+        batch["prediction"] = torch.ones((len(batch["row_id"]), len(SPECIES))) * 0.5
         return batch
 
 
@@ -24,27 +23,19 @@ def make_submission(
     soundscape_path: str,
     metadata_path: str,
     output_csv_path: str,
-    model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
     batch_size: int = 32,
     num_workers: int = 0,
-    use_compiled: bool = True,
     limit=None,
-    should_profile=False,
+    **kwargs,
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
-    dm = GoogleVocalizationSoundscapeDataModule(
+    dm = SoundscapeDataModule(
         soundscape_path=soundscape_path,
-        metadata_path=metadata_path,
-        model_path=model_path,
         batch_size=batch_size,
-        use_compiled=use_compiled,
         num_workers=num_workers,
         limit=limit,
     )
     kwargs = dict()
-    if should_profile:
-        profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
-        kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
     predictions = trainer.predict(PassthroughModel(), dm)
 
@@ -63,7 +54,6 @@ if __name__ == "__main__":
     # this is for testing the performance against soundscape data
     import luigi
 
-    from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
     from birdclef.tasks import RsyncGCSFiles
 
     luigi.build(
