@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow_hub as hub
+import torch
 import torchaudio
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
@@ -66,7 +67,7 @@ class GoogleVocalizationInference(Inference):
         :param path: The absolute path to the audio file.
         """
         audio, _ = torchaudio.load(path)
-        audio = audio.squeeze()
+        audio = audio[0]
         # right pad the audio so we can reshape into a rectangle
         n = audio.shape[0]
         if n % window != 0:

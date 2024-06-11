@@ -31,8 +31,8 @@ class SoundscapeDataset(IterableDataset):
         :param path: The absolute path to the audio file.
         """
         audio, _ = torchaudio.load(path)
-        audio = audio.squeeze()
-        # right pad the audio so we can reshape into a rectangle
+        audio = audio[0]
+        # right pad the audio sso we can reshape into a rectangle
         n = audio.shape[0]
         if n % window != 0:
             audio = torch.concatenate([audio, torch.zeros(window - (n % window))])
