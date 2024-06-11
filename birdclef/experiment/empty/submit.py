@@ -15,7 +15,7 @@ class PassthroughModel(pl.LightningModule):
         return x
 
     def predict_step(self, batch, batch_idx):
-        batch["prediction"] = torch.ones((batch["row_id"].shape[0], len(SPECIES))) * 0.5
+        batch["prediction"] = torch.ones((len(batch["row_id"]), len(SPECIES))) * 0.5
         return batch
 
 
@@ -31,7 +31,6 @@ def make_submission(
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
     dm = SoundscapeDataModule(
         soundscape_path=soundscape_path,
-        metadata_path=metadata_path,
         batch_size=batch_size,
         num_workers=num_workers,
         limit=limit,
