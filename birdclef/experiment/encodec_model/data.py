@@ -2,7 +2,7 @@ import os
 import warnings
 from pathlib import Path
 
-import pytorch_lightning as pl
+import lightning as pl
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
 from torchvision.transforms import v2
@@ -72,8 +72,12 @@ class PetastormDataModule(pl.LightningDataModule):
             # read data
             encodec_df = self.spark.read.parquet(self.input_encodec_path).cache()
             google_df = self.spark.read.parquet(self.input_google_path).cache()
-            df = encodec_df.join(google_df.select("name", "chunk_5s", self.label_col), on=["name", "chunk_5s"], how="inner")
-            
+            df = encodec_df.join(
+                google_df.select("name", "chunk_5s", self.label_col),
+                on=["name", "chunk_5s"],
+                how="inner",
+            )
+
             # train/valid Split
             self.train_data, self.valid_data = self._train_valid_split(df=df)
             print(self.train_data.count(), self.valid_data.count())
