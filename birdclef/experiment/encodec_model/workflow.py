@@ -3,15 +3,15 @@ import os
 from argparse import ArgumentParser
 from pathlib import Path
 
+import lightning as pl
 import luigi
 import luigi.contrib.gcs
-import pytorch_lightning as pl
 import torch
 import wandb
-from pytorch_lightning.callbacks import LearningRateFinder
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+from lightning.callbacks import LearningRateFinder
+from lightning.callbacks.early_stopping import EarlyStopping
+from lightning.callbacks.model_checkpoint import ModelCheckpoint
+from lightning.loggers import WandbLogger
 
 from birdclef.experiment.encodec_model.data import PetastormDataModule
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
@@ -94,7 +94,7 @@ class TrainClassifier(luigi.Task):
                 monitor="val_loss",
                 save_last=True,
             )
-            
+
             torch.set_float32_matmul_precision("high")
 
             # trainer
