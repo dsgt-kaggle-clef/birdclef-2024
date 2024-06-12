@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import lightning as pl
@@ -10,11 +11,7 @@ from torch.utils.data import DataLoader, IterableDataset
 class SoundscapeDataset(IterableDataset):
     """Dataset meant for inference on soundscape data."""
 
-    def __init__(
-        self,
-        soundscape_path: str,
-        limit=None,
-    ):
+    def __init__(self, soundscape_path: str, limit=None, max_length: int = 4 * 60 / 5):
         """Initialize the dataset.
 
         :param soundscape_path: The path to the soundscape data.
@@ -22,6 +19,7 @@ class SoundscapeDataset(IterableDataset):
         :param model_path: The path to the model.
         """
         self.soundscapes = sorted(Path(soundscape_path).glob("**/*.ogg"))
+        self.max_length = int(max_length)
         if limit is not None:
             self.soundscapes = self.soundscapes[:limit]
 
@@ -31,14 +29,14 @@ class SoundscapeDataset(IterableDataset):
         :param path: The absolute path to the audio file.
         """
         audio, _ = torchaudio.load(path)
-        audio = audio.squeeze()
-        # right pad the audio so we can reshape into a rectangle
+        audio = audio[0]
+        # right pad the audio sso we can reshape into a rectangle
         n = audio.shape[0]
-        if n % window != 0:
-            audio = audio[: n - (n % window)]
+        if (n % window) != 0:
+            audio = torch.concatenate([audio, torch.zeros(window - (n % window))])
         # reshape the audio into windowsize chunks
         audio = audio.reshape(-1, window)
-        return audio
+        return audio[: self.max_length]
 
     def _load_data(self, iter_start, iter_end):
         for i in range(iter_start, iter_end):
@@ -48,20 +46,21 @@ class SoundscapeDataset(IterableDataset):
             indices = range(n_chunks)
 
             # now we yield a dictionary
-            for idx, audio_row in zip(indices, audio):
-                yield {"row_id": f"{path.stem}_{(idx+1)*5}", "audio": audio_row}
+            for idx in indices:
+                yield {"row_id": f"{path.stem}_{(idx+1)*5}"}
 
     def __iter__(self):
         # https://pytorch.org/docs/stable/data.html#torch.utils.data.IterableDataset
         worker_info = torch.utils.data.get_worker_info()
+        start, end = 0, len(self.soundscapes)
         if worker_info is None:
-            iter_start = 0
-            iter_end = len(self.soundscapes)
+            iter_start = start
+            iter_end = end
         else:
-            per_worker = int(len(self.soundscapes) / worker_info.num_workers)
+            per_worker = int(math.ceil((end - start) / float(worker_info.num_workers)))
             worker_id = worker_info.id
-            iter_start = worker_id * per_worker
-            iter_end = min(iter_start + per_worker, len(self.soundscapes))
+            iter_start = start + worker_id * per_worker
+            iter_end = min(iter_start + per_worker, end)
 
         return self._load_data(iter_start, iter_end)
 

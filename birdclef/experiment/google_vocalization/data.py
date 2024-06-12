@@ -2,7 +2,7 @@ import os
 import warnings
 from pathlib import Path
 
-import pytorch_lightning as pl
+import lightning as pl
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType

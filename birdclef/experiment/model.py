@@ -1,4 +1,4 @@
-import pytorch_lightning as pl
+import lightning as pl
 import torch
 from torch import nn
 from torchmetrics.classification import MultilabelAUROC, MultilabelF1Score
@@ -96,6 +96,12 @@ class LinearClassifier(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         return self._run_step(batch, batch_idx, "test")
+
+    def predict_step(self, batch, batch_idx):
+        # NOTE: it's a pain to rename everything in the tensorflow dataloader to feature,
+        # so instead we just pass the name from the soundscape dataloader instead
+        batch["prediction"] = torch.sigmoid(self(batch["embedding"]))
+        return batch
 
 
 class TwoLayerClassifier(LinearClassifier):

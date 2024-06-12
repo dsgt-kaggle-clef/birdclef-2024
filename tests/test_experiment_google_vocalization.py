@@ -1,8 +1,8 @@
 import itertools
 import random
 
+import lightning as pl
 import pytest
-import pytorch_lightning as pl
 import torch
 from pyspark.sql import Row
 from pyspark.sql.types import ArrayType, FloatType, StringType, StructField, StructType
