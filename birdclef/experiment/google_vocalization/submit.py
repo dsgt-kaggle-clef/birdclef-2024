@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
 from birdclef.experiment.label.data import GoogleVocalizationSoundscapeDataModule
-from birdclef.experiment.model import LinearClassifier
+from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 
 
 def make_submission(
@@ -15,6 +15,7 @@ def make_submission(
     metadata_path: str,
     output_csv_path: str,
     model_path: str,
+    model_type: str = "linear",
     vocalization_model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
     batch_size: int = 32,
     num_workers: int = 0,
@@ -38,7 +39,14 @@ def make_submission(
         kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
 
-    model = LinearClassifier.load_from_checkpoint(model_path)
+    if model_type == "linear":
+        model_class = LinearClassifier
+    elif model_type == "two_layer":
+        model_class = TwoLayerClassifier
+    else:
+        raise ValueError(f"invalid class: {model_type}")
+
+    model = model_class.load_from_checkpoint(model_path)
     predictions = trainer.predict(model, dm)
 
     rows = []
