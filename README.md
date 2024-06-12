@@ -40,5 +40,7 @@ Here are a few resources for running the code on Kaggle:
   - This is the google vocalization classifier that we're using as a starting point.
 - https://www.kaggle.com/code/acmiyaguchi/dsgt-birdclef-2024-package-sync
   - This is a script that will sync the code from the repo to the Kaggle notebook.
+- https://www.kaggle.com/code/acmiyaguchi/dsgt-birdclef-2024-model-sync
+  - This is a script that will sync the model from google cloud storage to the Kaggle notebook.
 - https://www.kaggle.com/code/acmiyaguchi/dsgt-birdclef-2024-vocalization-inference
   - This is a script that will run the inference on the Kaggle notebook.
