@@ -8,14 +8,13 @@ import luigi
 import luigi.contrib.gcs
 import torch
 import wandb
-from lightning.callbacks import LearningRateFinder
-from lightning.callbacks.early_stopping import EarlyStopping
-from lightning.callbacks.model_checkpoint import ModelCheckpoint
-from lightning.loggers import WandbLogger
+from lightning.pytorch.callbacks import LearningRateFinder
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
+from lightning.pytorch.loggers import WandbLogger
 
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
-from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import spark_resource
 
 
