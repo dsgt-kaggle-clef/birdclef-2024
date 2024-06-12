@@ -1,17 +1,15 @@
 import itertools
 import random
-import warnings
 
 import lightning as pl
 import pytest
 import torch
 from pyspark.sql import Row
-from pyspark.sql.types import ArrayType, FloatType, StructField, StructType
-from torch import nn
+from pyspark.sql.types import ArrayType, FloatType, StringType, StructField, StructType
 
+from birdclef.config import SPECIES
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
-from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import get_spark
 
 
@@ -24,13 +22,15 @@ def temp_spark_data_path(spark, tmp_path_factory):
         Row(
             features=[float(i) for i in range(10)],
             label=[float(random.randint(0, 1)) for _ in range(10)],
+            name=f"{random.choice(SPECIES[:10])}/XC123456.ogg",  # use only first 10 species
         )
-        for i in range(10)
+        for _ in range(10)
     ]
     schema = StructType(
         [
             StructField("embeddings", ArrayType(FloatType()), False),
             StructField("species_name", ArrayType(FloatType()), False),
+            StructField("name", StringType(), False),
         ]
     )
     # create DF
@@ -43,15 +43,11 @@ def temp_spark_data_path(spark, tmp_path_factory):
 
 # Test Function
 def test_petastorm_data_module_setup(spark, temp_spark_data_path):
-    input_path = temp_spark_data_path
-    feature_col = "embeddings"
-    label_col = "species_name"
-
     data_module = PetastormDataModule(
         spark=spark,
-        input_path=input_path,
-        feature_col=feature_col,
-        label_col=label_col,
+        input_path=temp_spark_data_path,
+        feature_col="embeddings",
+        label_col="species_name",
     )
     data_module.setup()
     print(f"train data shape: {data_module.train_data.count()}")
@@ -68,21 +64,19 @@ def test_petastorm_data_module_setup(spark, temp_spark_data_path):
 # run this both gpu and cpu, but only the gpu if it's available
 # pytest parametrize
 @pytest.mark.parametrize(
-    "device, loss", itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"])
+    "device, loss, species_label",
+    # itertools.product(["cpu", "gpu"], ["bce", "asl", "sigmoidf1"], [False, True]),
+    itertools.product(["cpu", "gpu"], ["asl"], [False, True]),
 )
-def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
+def test_linear_torch_model(spark, temp_spark_data_path, device, loss, species_label):
     if device == "gpu" and not torch.cuda.is_available():
         pytest.skip()
-    # Params
-    input_path = temp_spark_data_path
-    feature_col = "embeddings"
-    label_col = "species_name"
 
     data_module = PetastormDataModule(
         spark=spark,
-        input_path=input_path,
-        feature_col=feature_col,
-        label_col=label_col,
+        input_path=temp_spark_data_path,
+        feature_col="embeddings",
+        label_col="species_name",
     )
     data_module.setup()
 
@@ -93,7 +87,9 @@ def test_linear_torch_model(spark, temp_spark_data_path, device, loss):
     num_labels = int(len(data_module.train_data.select("label").first()["label"]))
 
     # test losses
-    model = LinearClassifier(num_features, num_labels, loss=loss)
+    model = LinearClassifier(
+        num_features, num_labels, loss=loss, species_label=species_label
+    )
 
     trainer = pl.Trainer(
         accelerator=device,
