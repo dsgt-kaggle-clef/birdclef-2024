@@ -24,6 +24,7 @@ class LinearClassifier(pl.LightningModule):
         loss: str = "bce",
         hp_kwargs: dict = {},
         species_label: bool = False,
+        **kwargs,
     ):
         super().__init__()
         self.num_features = num_features
@@ -108,14 +109,14 @@ class TwoLayerClassifier(LinearClassifier):
     def __init__(
         self,
         num_features: int,
-        num_classes: int,
+        num_labels: int,
         hidden_layer_size: int = 64,
         **kwargs,
     ):
-        super().__init__(num_features, num_classes, **kwargs)
+        super().__init__(num_features, num_labels, **kwargs)
         self.model = nn.Sequential(
             nn.Linear(num_features, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.ReLU(inplace=True),
-            nn.Linear(hidden_layer_size, num_classes),
+            nn.Linear(hidden_layer_size, num_labels),
         )

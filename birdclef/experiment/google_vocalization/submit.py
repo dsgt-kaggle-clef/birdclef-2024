@@ -81,11 +81,14 @@ if __name__ == "__main__":
     )
 
     # 10 samples in 570 seconds
+    model_name = "torch-v1-google-twolayer-asl-gamma_neg4-gamma_pos1-hidden256"
+    model_type = "two_layer"
     make_submission(
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
-        "/mnt/data/models/torch-v1-google-linear-asl/checkpoints/last.ckpt",
+        f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
+        model_type,
         num_workers=2,
         limit=20,
         should_profile=False,
