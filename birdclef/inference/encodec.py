@@ -10,6 +10,16 @@ from encodec.utils import convert_audio
 from birdclef.inference.base import Inference
 
 
+class WrappedEncodec(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor):
+        frames = self.model.encode(x)
+        return torch.cat([encoded[0] for encoded in frames], dim=-1)
+
+
 class EncodecInference(Inference):
     """Class to perform inference on audio files using an Encodec model."""
 
@@ -34,13 +44,14 @@ class EncodecInference(Inference):
                 self.model.sample_rate,
                 self.model.channels,
             )
-            ov_model = ov.convert_model(self.model, example_input=example_input)
+            wrapped_model = WrappedEncodec(self.model)
+            ov_model = ov.convert_model(wrapped_model, example_input=example_input)
             self.compiled_model = ov.Core().compile_model(ov_model, "CPU")
 
     def encode_compiled(self, audio):
         res = self.compiled_model({0: audio.numpy()})
-        print(res[0], res[0].shape)
-        embeddings = torch.tensor(res[0])
+        output = torch.from_numpy(res[0])
+        embeddings = output.reshape(output.shape[0], -1).squeeze()
         return embeddings
 
     def encode(self, audio):
