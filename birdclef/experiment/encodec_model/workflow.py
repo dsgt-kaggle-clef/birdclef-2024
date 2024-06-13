@@ -14,7 +14,7 @@ from lightning.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.loggers import WandbLogger
 
 from birdclef.experiment.encodec_model.data import PetastormDataModule
-from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
+from birdclef.experiment.model import LSTMClassifier, LinearClassifier, TwoLayerClassifier
 from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import spark_resource
 
@@ -28,10 +28,12 @@ class TrainClassifier(luigi.Task):
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
+    lstm_size = luigi.OptionalIntParameter(default=64)
     hyper_params = luigi.OptionalDictParameter(default={})
     batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
-    two_layer = luigi.OptionalBoolParameter(default=False)
+    # architecture = luigi.OptionalParameter(default="linear")
+    # two_layer = luigi.OptionalBoolParameter(default=False)
 
     def output(self):
         # save the model run
@@ -66,16 +68,38 @@ class TrainClassifier(luigi.Task):
             )
 
             # model module
-            if self.two_layer:
-                model = torch_model(
-                    num_features,
-                    num_labels,
-                    loss=self.loss,
-                    hidden_layer_size=self.hidden_layer_size,
-                    hp_kwargs=self.hyper_params,
-                )
-            else:
-                model = torch_model(num_features, num_labels, loss=self.loss)
+            match self.model:
+                case "linear":
+                    model = torch_model(num_features, num_labels, loss=self.loss)
+                case "two_layer":
+                    model = torch_model(
+                        num_features,
+                        num_labels,
+                        loss=self.loss,
+                        hidden_layer_size=self.hidden_layer_size,
+                        hp_kwargs=self.hyper_params,
+                    )
+                case "lstm":
+                    model = torch_model(
+                        num_features,
+                        num_labels,
+                        loss=self.loss,
+                        lstm_size=self.lstm_size,
+                        hp_kwargs=self.hyper_params,
+                    )
+                # case "clstm":
+                #     model = torch_model(
+                #         num_features,
+                #         num_labels,
+                #         loss=self.loss,
+                #         clstm_conv_size=self.clstm_conv_size,
+                #         clstm_lstm_size=self.clstm_lstm_size,
+                #         hp_kwargs=self.hyper_params,
+                #     )
+                case _:
+                    raise ValueError(f"Invalid architecture: {self.model}")
+                
+                
 
             # initialise the wandb logger and name your wandb project
             print(f"\nwanb name: {Path(self.default_root_dir).name}")
@@ -126,19 +150,25 @@ class HyperparameterGrid:
         model_params = {
             "linear": LinearClassifier,
             "two_layer": TwoLayerClassifier,
+            "lstm": LSTMClassifier,
         }
         loss_params = {
             "bce": {},
             "asl": {
-                "gamma_neg": [0, 2, 4],
-                "gamma_pos": [0, 1],
-            },
-            "sigmoidf1": {
-                "S": [-1, -15, -30],
-                "E": [0, 1, 2],
-            },
+                "gamma_neg": [4],
+                "gamma_pos": [1],
+            }
+            # "asl": {
+            #     "gamma_neg": [0, 2, 4],
+            #     "gamma_pos": [0, 1],
+            # },
+            # "sigmoidf1": {
+            #     "S": [-1, -15, -30],
+            #     "E": [0, 1, 2],
+            # },
         }
-        hidden_layers = [64, 128, 256]
+        hidden_layers = [256]
+        # hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
 
 
@@ -197,7 +227,24 @@ class Workflow(luigi.Task):
                         model=model,
                         hidden_layer_size=hidden_layer_size,
                         hyper_params=hp_params,
-                        two_layer=True,
+                    )
+                    
+        model, lstm_size = "lstm", 256
+        for loss in loss_params:
+            for hp_params in self.generate_loss_hp_params(loss_params[loss]):
+                param_log = [f"{k}{v}" for k, v in hp_params.items()]
+                if len(param_log) > 0:
+                    param_name = "-".join(param_log)
+                    yield TrainClassifier(
+                        input_encodec_path=self.input_encodec_path,
+                        input_google_path=self.input_google_path,
+                        default_root_dir=f"{self.default_root_dir}-lstm-{loss}-{param_name}-lstm{lstm_size}",
+                        label_col=label_col,
+                        feature_col=feature_col,
+                        loss=loss,
+                        model=model,
+                        lstm_size=lstm_size,
+                        hyper_params=hp_params,
                     )
 
 
@@ -212,7 +259,7 @@ def parse_args():
     parser.add_argument(
         "--train-data-encodec-path",
         type=str,
-        default="data/processed/encodec_embeddings/v1",
+        default="data/processed/encodec_embeddings/v2",
         help="Root directory for Encodec training data in GCS",
     )
     parser.add_argument(
@@ -224,13 +271,13 @@ def parse_args():
     parser.add_argument(
         "--output-name-path",
         type=str,
-        default="data/processed/encodec_embeddings/v1-transformed",
+        default="data/processed/encodec_embeddings/v2-transformed",
         help="GCS path for output Parquet files",
     )
     parser.add_argument(
         "--model-dir-path",
         type=str,
-        default="models/torch-v1-encodec",
+        default="models/torch-v2-encodec",
         help="Default root directory for storing the pytorch classifier runs",
     )
     parser.add_argument(

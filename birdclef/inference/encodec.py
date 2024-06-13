@@ -21,7 +21,7 @@ class EncodecInference(Inference):
         self.metadata = pd.read_csv(metadata_path)
         self.chunk_size = chunk_size
         self.model = EncodecModel.encodec_model_24khz()
-        self.model.set_target_bandwidth(1.5)
+        self.model.set_target_bandwidth(3.0)
         self.model = self.model.to(self.device)
 
     def encode(self, audio):

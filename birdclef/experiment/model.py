@@ -120,3 +120,49 @@ class TwoLayerClassifier(LinearClassifier):
             nn.ReLU(inplace=True),
             nn.Linear(hidden_layer_size, num_labels),
         )
+        
+
+class LSTMClassifier(LinearClassifier):
+    # TODO: in progress
+    def __init__(
+        self,
+        num_features: int,
+        num_classes: int,
+        lstm_size: int = 64,
+        **kwargs,
+    ):
+        super().__init__(num_features, num_classes, **kwargs)
+        self.seq_features = 4
+        self.seq_len = num_features // self.seq_features
+
+        self.lstm = nn.LSTM(self.seq_features, lstm_size)
+        self.fc = nn.Linear(lstm_size, num_classes)
+        
+    def forward(self, x):
+        x = x.reshape(self.seq_len, -1, self.seq_features)
+        x, _ = self.lstm(x)
+        x = self.fc(x[-1])
+        return x
+    
+    
+class ConvLSTMClassifier(LinearClassifier):
+    # TODO: in progress
+    def __init__(
+        self,
+        num_features: int,
+        num_classes: int,
+        conv_size: int = 128,
+        conv_kernel: int = 7,
+        lstm_size: int = 128,
+        **kwargs,
+    ):
+        super().__init__(num_features, num_classes, **kwargs)
+        self.conv = nn.Conv1d(num_features, conv_size, conv_kernel)
+        self.lstm = nn.LSTM(num_features, lstm_size)
+        self.fc = nn.Linear(lstm_size, num_classes)
+        
+    def forward(self, x):
+        x = x.reshape(self.seq_len, -1, self.seq_features)
+        x, _ = self.lstm(x)
+        x = self.fc(x[-1])
+        return x
