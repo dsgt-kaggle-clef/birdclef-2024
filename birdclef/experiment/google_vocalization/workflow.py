@@ -135,10 +135,10 @@ class HyperparameterGrid:
                 "gamma_neg": [0, 2, 4],
                 "gamma_pos": [0, 1],
             },
-            "sigmoidf1": {
-                "S": [-1, -15, -30],
-                "E": [0, 1, 2],
-            },
+            # "sigmoidf1": {
+            #     "S": [-1, -15, -30],
+            #     "E": [0, 1, 2],
+            # },
         }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
@@ -183,15 +183,18 @@ class Workflow(luigi.Task):
             )
 
         # TwoLayer model grid search
-        model, hidden_layer_size, species_label = "two_layer", 256, False
+        model, hidden_layer_size, species_label = "two_layer", 256, True
         for loss in loss_params:
             for hp_params in self.generate_loss_hp_params(loss_params[loss]):
                 param_log = [f"{k}{v}" for k, v in hp_params.items()]
                 if len(param_log) > 0:
                     param_name = "-".join(param_log)
+                    default_dir = f"{self.default_root_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}"
+                    if species_label:
+                        default_dir = f"{default_dir}-species-label"
                     yield TrainClassifier(
                         input_path=self.input_path,
-                        default_root_dir=f"{self.default_root_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}",
+                        default_root_dir=default_dir,
                         label_col=label_col,
                         feature_col=feature_col,
                         loss=loss,
