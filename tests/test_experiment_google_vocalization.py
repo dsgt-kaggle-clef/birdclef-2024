@@ -10,7 +10,7 @@ from pyspark.sql.types import ArrayType, FloatType, StructField, StructType
 from torch import nn
 
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
-from birdclef.experiment.google_vocalization.model import (
+from birdclef.experiment.model import (
     LinearClassifier,
     TwoLayerClassifier,
 )
