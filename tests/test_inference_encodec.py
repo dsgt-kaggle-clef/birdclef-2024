@@ -17,6 +17,13 @@ def test_encodec_inference_predict(metadata_path):
     assert embedding.shape == (2, 150 * 5)
 
 
+def test_encodec_inference_predict_compiled(metadata_path):
+    ei = EncodecInference(metadata_path, use_compiled=True)
+    embedding, _ = ei.predict(metadata_path.parent / "file_0.ogg")
+    # 10 seconds of audio means there are 10 rows
+    assert embedding.shape == (2, 150 * 5)
+
+
 def test_encodec_inference_predict_df(metadata_path):
     ei = EncodecInference(metadata_path)
     df = ei.predict_df(metadata_path.parent, "file_0.ogg")

@@ -1,4 +1,5 @@
 import numpy as np
+import openvino as ov
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -16,13 +17,31 @@ class EncodecInference(Inference):
         self,
         metadata_path: str,
         chunk_size: int = 5,
+        use_compiled: bool = False,
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
     ):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
         self.metadata = pd.read_csv(metadata_path)
         self.chunk_size = chunk_size
         self.model = EncodecModel.encodec_model_24khz()
         self.model.set_target_bandwidth(1.5)
         self.model = self.model.to(self.device)
+        self.use_compiled = use_compiled
+        if use_compiled:
+            example_input = convert_audio(
+                torch.randn((1, 1, 5 * 32000)),
+                32000,
+                self.model.sample_rate,
+                self.model.channels,
+            )
+            ov_model = ov.convert_model(self.model, example_input=example_input)
+            self.compiled_model = ov.Core().compile_model(ov_model, "CPU")
+
+    def encode_compiled(self, audio):
+        res = self.compiled_model({0: audio.numpy()})
+        print(res[0], res[0].shape)
+        embeddings = torch.tensor(res[0])
+        return embeddings
 
     def encode(self, audio):
         # Extract discrete codes from EnCodec
@@ -49,5 +68,6 @@ class EncodecInference(Inference):
         chunks = torch.split(audio, true_chunk_size, dim=-1)
         last_padded = F.pad(chunks[-1], (0, true_chunk_size - chunks[-1].shape[-1]))
         chunks = chunks[:-1] + (last_padded,)
-        embeddings = torch.stack([self.encode(chunk) for chunk in chunks])
+        encode_func = self.encode_compiled if self.use_compiled else self.encode
+        embeddings = torch.stack([encode_func(chunk) for chunk in chunks])
         return embeddings, None
