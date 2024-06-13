@@ -127,16 +127,16 @@ class LSTMClassifier(LinearClassifier):
     def __init__(
         self,
         num_features: int,
-        num_classes: int,
+        num_labels: int,
         lstm_size: int = 64,
         **kwargs,
     ):
-        super().__init__(num_features, num_classes, **kwargs)
+        super().__init__(num_features, num_labels, **kwargs)
         self.seq_features = 4
         self.seq_len = num_features // self.seq_features
 
         self.lstm = nn.LSTM(self.seq_features, lstm_size)
-        self.fc = nn.Linear(lstm_size, num_classes)
+        self.fc = nn.Linear(lstm_size, num_labels)
         
     def forward(self, x):
         x = x.reshape(self.seq_len, -1, self.seq_features)
@@ -150,16 +150,16 @@ class ConvLSTMClassifier(LinearClassifier):
     def __init__(
         self,
         num_features: int,
-        num_classes: int,
+        num_labels: int,
         conv_size: int = 128,
         conv_kernel: int = 7,
         lstm_size: int = 128,
         **kwargs,
     ):
-        super().__init__(num_features, num_classes, **kwargs)
+        super().__init__(num_features, num_labels, **kwargs)
         self.conv = nn.Conv1d(num_features, conv_size, conv_kernel)
         self.lstm = nn.LSTM(num_features, lstm_size)
-        self.fc = nn.Linear(lstm_size, num_classes)
+        self.fc = nn.Linear(lstm_size, num_labels)
         
     def forward(self, x):
         x = x.reshape(self.seq_len, -1, self.seq_features)
