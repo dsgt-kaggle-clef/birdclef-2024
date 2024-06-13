@@ -2,42 +2,31 @@ from pathlib import Path
 
 import lightning as pl
 import pandas as pd
-import torch
 from lightning.pytorch.profilers import AdvancedProfiler
 from tqdm import tqdm
 
-from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH, SPECIES
+from birdclef.config import SPECIES
+from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 
-from .data import GoogleVocalizationSoundscapeDataModule
-
-
-class PassthroughModel(pl.LightningModule):
-    def forward(self, x):
-        return x
-
-    def predict_step(self, batch, batch_idx):
-        batch["prediction"] = torch.sigmoid(batch["logits"])
-        return batch
+from .data import EncodecSoundscapeDataModule
 
 
 def make_submission(
     soundscape_path: str,
     metadata_path: str,
     output_csv_path: str,
-    model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
+    model_path: str,
+    model_type: str = "linear",
     batch_size: int = 32,
     num_workers: int = 0,
-    use_compiled: bool = True,
     limit=None,
     should_profile=False,
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
-    dm = GoogleVocalizationSoundscapeDataModule(
+    dm = EncodecSoundscapeDataModule(
         soundscape_path=soundscape_path,
         metadata_path=metadata_path,
-        model_path=model_path,
         batch_size=batch_size,
-        use_compiled=use_compiled,
         num_workers=num_workers,
         limit=limit,
     )
@@ -46,7 +35,16 @@ def make_submission(
         profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
         kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
-    predictions = trainer.predict(PassthroughModel(), dm)
+
+    if model_type == "linear":
+        model_class = LinearClassifier
+    elif model_type == "two_layer":
+        model_class = TwoLayerClassifier
+    else:
+        raise ValueError(f"invalid class: {model_type}")
+
+    model = model_class.load_from_checkpoint(model_path)
+    predictions = trainer.predict(model, dm)
 
     rows = []
     for batch in tqdm(predictions):
@@ -63,7 +61,6 @@ if __name__ == "__main__":
     # this is for testing the performance against soundscape data
     import luigi
 
-    from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
     from birdclef.tasks import RsyncGCSFiles
 
     luigi.build(
@@ -72,16 +69,24 @@ if __name__ == "__main__":
                 src_path="gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/unlabeled_soundscapes",
                 dst_path="/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
             ),
+            RsyncGCSFiles(
+                src_path="gs://dsgt-clef-birdclef-2024/models",
+                dst_path="/mnt/data/models",
+            ),
         ],
         scheduler_host="services.us-central1-a.c.dsgt-clef-2024.internal",
     )
 
     # 10 samples in 570 seconds
+    model_name = "torch-v1-encodec-linear-asl"
+    model_type = "linear"
     make_submission(
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
-        num_workers=2,
+        f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
+        model_type,
+        num_workers=0,
         limit=20,
         should_profile=False,
     )

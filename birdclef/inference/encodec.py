@@ -29,7 +29,7 @@ class EncodecInference(Inference):
         with torch.no_grad():
             encoded_frames = self.model.encode(audio)
         embeddings = torch.cat([encoded[0] for encoded in encoded_frames], dim=-1)
-        return embeddings[0].flatten().cpu().numpy()
+        return embeddings[0].flatten()
 
     def predict(
         self,
@@ -49,5 +49,5 @@ class EncodecInference(Inference):
         chunks = torch.split(audio, true_chunk_size, dim=-1)
         last_padded = F.pad(chunks[-1], (0, true_chunk_size - chunks[-1].shape[-1]))
         chunks = chunks[:-1] + (last_padded,)
-        embeddings = np.stack([self.encode(chunk) for chunk in chunks])
+        embeddings = torch.stack([self.encode(chunk) for chunk in chunks])
         return embeddings, None

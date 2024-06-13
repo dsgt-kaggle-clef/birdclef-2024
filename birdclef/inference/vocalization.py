@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow_hub as hub
+import torch
 import torchaudio
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
@@ -27,6 +28,7 @@ class GoogleVocalizationInference(Inference):
         metadata_path: str,
         model_path: str = DEFAULT_VOCALIZATION_MODEL_PATH,
         use_compiled: bool = False,
+        max_length: int = 0,
     ):
         self.model = hub.load(model_path)
         self.metadata = pd.read_csv(metadata_path)
@@ -43,6 +45,7 @@ class GoogleVocalizationInference(Inference):
                 model_content=compile_tflite_model(self.model)
             )
             self.compiled_model.allocate_tensors()
+        self.max_length = max_length
 
     def _get_index_subset(
         self, metadata: pd.DataFrame, model_labels: pd.DataFrame
@@ -66,13 +69,15 @@ class GoogleVocalizationInference(Inference):
         :param path: The absolute path to the audio file.
         """
         audio, _ = torchaudio.load(path)
-        audio = audio.squeeze()
+        audio = audio[0]
         # right pad the audio so we can reshape into a rectangle
         n = audio.shape[0]
-        if n % window != 0:
-            audio = audio[: n - (n % window)]
+        if (n % window) != 0:
+            audio = torch.concatenate([audio, torch.zeros(window - (n % window))])
         # reshape the audio into windowsize chunks
         audio = audio.reshape(-1, window)
+        if self.max_length > 0:
+            audio = audio[: self.max_length]
         return audio
 
     def _infer_tflite(self, audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

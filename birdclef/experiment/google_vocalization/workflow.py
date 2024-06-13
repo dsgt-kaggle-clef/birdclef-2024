@@ -3,19 +3,18 @@ import os
 from argparse import ArgumentParser
 from pathlib import Path
 
+import lightning as pl
 import luigi
 import luigi.contrib.gcs
-import pytorch_lightning as pl
 import torch
 import wandb
-from pytorch_lightning.callbacks import LearningRateFinder
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+from lightning.pytorch.callbacks import LearningRateFinder
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
+from lightning.pytorch.loggers import WandbLogger
 
 from birdclef.experiment.google_vocalization.data import PetastormDataModule
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
-from birdclef.torch.losses import AsymmetricLossOptimized, SigmoidF1
 from birdclef.utils import spark_resource
 
 
@@ -28,6 +27,7 @@ class TrainClassifier(luigi.Task):
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
     hyper_params = luigi.OptionalDictParameter(default={})
+    species_label = luigi.OptionalBoolParameter(default=False)
     batch_size = luigi.IntParameter(default=1000)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
@@ -71,9 +71,15 @@ class TrainClassifier(luigi.Task):
                     loss=self.loss,
                     hidden_layer_size=self.hidden_layer_size,
                     hp_kwargs=self.hyper_params,
+                    species_label=self.species_label,
                 )
             else:
-                model = torch_model(num_features, num_labels, loss=self.loss)
+                model = torch_model(
+                    num_features,
+                    num_labels,
+                    loss=self.loss,
+                    species_label=self.species_label,
+                )
 
             # initialise the wandb logger and name your wandb project
             print(f"\nwanb name: {Path(self.default_root_dir).name}")
@@ -161,21 +167,23 @@ class Workflow(luigi.Task):
         _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
         # Linear model grid search
-        model = "linear"
-        yield [
-            TrainClassifier(
+        model, species_label = "linear", True
+        for loss in loss_params:
+            default_dir = f"{self.default_root_dir}-{model}-{loss}"
+            if species_label:
+                default_dir = f"{self.default_root_dir}-{model}-{loss}-species-label"
+            yield TrainClassifier(
                 input_path=self.input_path,
-                default_root_dir=f"{self.default_root_dir}-{model}-{loss}",
+                default_root_dir=default_dir,
                 label_col=label_col,
                 feature_col=feature_col,
                 loss=loss,
                 model=model,
+                species_label=species_label,
             )
-            for loss in loss_params
-        ]
 
         # TwoLayer model grid search
-        model, hidden_layer_size = "two_layer", 256
+        model, hidden_layer_size, species_label = "two_layer", 256, False
         for loss in loss_params:
             for hp_params in self.generate_loss_hp_params(loss_params[loss]):
                 param_log = [f"{k}{v}" for k, v in hp_params.items()]
@@ -190,6 +198,7 @@ class Workflow(luigi.Task):
                         model=model,
                         hidden_layer_size=hidden_layer_size,
                         hyper_params=hp_params,
+                        species_label=species_label,
                         two_layer=True,
                     )
 
