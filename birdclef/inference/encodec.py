@@ -48,7 +48,12 @@ class EncodecInference(Inference):
             )
             wrapped_model = WrappedEncodec(self.model)
             ov_model = ov.convert_model(wrapped_model, example_input=example_input)
-            ov_model = nncf.compress_weights(ov_model)
+            ov_model = nncf.compress_weights(
+                ov_model,
+                mode=nncf.CompressWeightsMode.INT4_SYM,
+                group_size=128,
+                ratio=0.99,
+            )
             self.compiled_model = ov.Core().compile_model(ov_model, "CPU")
 
     def encode_compiled(self, audio):
@@ -64,11 +69,7 @@ class EncodecInference(Inference):
         embeddings = torch.cat([encoded[0] for encoded in encoded_frames], dim=-1)
         return embeddings[0].flatten()
 
-    def predict(
-        self,
-        path: str,
-        **kwargs,
-    ) -> tuple[np.ndarray, None]:
+    def predict(self, path: str, **kwargs) -> tuple[np.ndarray, None]:
         """Get embeddings for a single audio file.
 
         :param path: The absolute path to the audio file.
