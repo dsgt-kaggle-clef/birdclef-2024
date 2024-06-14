@@ -90,7 +90,7 @@ if __name__ == "__main__":
         "/mnt/data/tmp/submission.csv",
         f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
         model_type,
-        num_workers=0,
+        num_workers=2,
         limit=20,
         should_profile=False,
     )

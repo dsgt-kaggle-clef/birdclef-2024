@@ -90,7 +90,7 @@ if __name__ == "__main__":
         f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
         model_type,
         num_workers=0,
-        limit=10,
+        limit=20,
         use_compiled=True,
         should_profile=True,
     )

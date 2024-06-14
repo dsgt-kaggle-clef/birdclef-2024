@@ -1,3 +1,4 @@
+import nncf
 import numpy as np
 import openvino as ov
 import pandas as pd
@@ -36,20 +37,24 @@ class EncodecInference(Inference):
         self.model = EncodecModel.encodec_model_24khz()
         self.model.set_target_bandwidth(1.5)
         self.model = self.model.to(self.device)
+        self.model = torch.jit.optimize_for_inference(
+            torch.jit.script(self.model.eval())
+        )
         self.use_compiled = use_compiled
         if use_compiled:
             example_input = convert_audio(
                 torch.randn((1, 1, 5 * 32000)),
                 32000,
-                self.model.git,
+                self.model.sample_rate,
                 self.model.channels,
             )
             wrapped_model = WrappedEncodec(self.model)
             ov_model = ov.convert_model(wrapped_model, example_input=example_input)
+            ov_model = nncf.compress_weights(ov_model)
             self.compiled_model = ov.Core().compile_model(ov_model, "CPU")
 
     def encode_compiled(self, audio):
-        res = self.compiled_model({0: audio.numpy()})
+        res = self.compiled_model(audio.numpy())
         output = torch.from_numpy(res[0])
         embeddings = output.reshape(output.shape[0], -1).squeeze()
         return embeddings
