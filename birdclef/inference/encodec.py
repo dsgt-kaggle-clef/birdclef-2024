@@ -37,9 +37,6 @@ class EncodecInference(Inference):
         self.model = EncodecModel.encodec_model_24khz()
         self.model.set_target_bandwidth(3.0)
         self.model = self.model.to(self.device)
-        self.model = torch.jit.optimize_for_inference(
-            torch.jit.script(self.model.eval())
-        )
         self.use_compiled = use_compiled
         if use_compiled:
             example_input = convert_audio(
