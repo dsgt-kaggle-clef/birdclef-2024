@@ -1,6 +1,6 @@
 import pandas as pd
 
-from birdclef.label.encodec_inference import EncodecInference
+from birdclef.inference.encodec import EncodecInference
 
 
 def test_encodec_inference_init(metadata_path):
@@ -14,7 +14,7 @@ def test_encodec_inference_predict(metadata_path):
     ei = EncodecInference(metadata_path)
     embedding, _ = ei.predict(metadata_path.parent / "file_0.ogg")
     # 10 seconds of audio means there are 2 rows
-    assert embedding.shape == (2, 75 * 2)
+    assert embedding.shape == (2, 150 * 5)
 
 
 def test_encodec_inference_predict_df(metadata_path):

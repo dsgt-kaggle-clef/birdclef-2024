@@ -28,6 +28,7 @@ class EncodecInference(Inference):
         self,
         metadata_path: str,
         chunk_size: int = 5,
+        target_bandwidth=1.5,
         use_compiled: bool = False,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
     ):
@@ -35,7 +36,7 @@ class EncodecInference(Inference):
         self.metadata = pd.read_csv(metadata_path)
         self.chunk_size = chunk_size
         self.model = EncodecModel.encodec_model_24khz()
-        self.model.set_target_bandwidth(3.0)
+        self.model.set_target_bandwidth(target_bandwidth)
         self.model = self.model.to(self.device)
         self.use_compiled = use_compiled
         if use_compiled:

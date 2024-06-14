@@ -26,6 +26,7 @@ class EmbedSpeciesAudio(luigi.Task):
 
     google_model_path = luigi.Parameter()
     encodec_chunk_size = luigi.IntParameter()
+    encodec_bandwidth = luigi.FloatParameter(default=3.0)
 
     def output(self):
         return maybe_gcs_target(
@@ -58,6 +59,7 @@ class EmbedSpeciesAudio(luigi.Task):
             return EncodecInference(
                 metadata_path=metadata_path,
                 chunk_size=self.encodec_chunk_size,
+                target_bandwidth=self.encodec_bandwidth,
             )
         raise ValueError(f"Invalid model: {self.model}")
 
