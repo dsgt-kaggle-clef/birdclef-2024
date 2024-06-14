@@ -90,7 +90,7 @@ class Workflow(luigi.Task):
     intermediate_path = luigi.Parameter()
     output_path = luigi.Parameter()
 
-    def run():
+    def run(self):
         yield EmbedWorkflow(
             remote_root=self.remote_root,
             local_root=self.local_root,
