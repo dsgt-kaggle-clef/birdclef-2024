@@ -41,7 +41,7 @@ class EncodecInference(Inference):
             example_input = convert_audio(
                 torch.randn((1, 1, 5 * 32000)),
                 32000,
-                self.model.sample_rate,
+                self.model.git,
                 self.model.channels,
             )
             wrapped_model = WrappedEncodec(self.model)

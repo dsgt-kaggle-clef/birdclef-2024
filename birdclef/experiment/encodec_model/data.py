@@ -120,6 +120,7 @@ class EncodecSoundscapeDataset(IterableDataset):
         soundscape_path: str,
         metadata_path: str,
         max_length: int = 4 * 60 / 5,
+        use_compiled=False,
         limit=None,
     ):
         """Initialize the dataset.
@@ -134,9 +135,10 @@ class EncodecSoundscapeDataset(IterableDataset):
         if limit is not None:
             self.soundscapes = self.soundscapes[:limit]
         self.metadata_path = metadata_path
+        self.use_compiled = use_compiled
 
     def _load_data(self, iter_start, iter_end):
-        model = EncodecInference(self.metadata_path)
+        model = EncodecInference(self.metadata_path, use_compiled=self.use_compiled)
         for i in range(iter_start, iter_end):
             path = self.soundscapes[i]
             embeddings, _ = model.predict(path)
@@ -174,6 +176,7 @@ class EncodecSoundscapeDataModule(pl.LightningDataModule):
         metadata_path: str,
         batch_size: int = 32,
         num_workers: int = 0,
+        use_compiled: bool = False,
         limit=None,
     ):
         """Initialize the data module.
@@ -189,6 +192,7 @@ class EncodecSoundscapeDataModule(pl.LightningDataModule):
             EncodecSoundscapeDataset(
                 soundscape_path,
                 metadata_path,
+                use_compiled=use_compiled,
                 limit=limit,
             ),
             batch_size=batch_size,
