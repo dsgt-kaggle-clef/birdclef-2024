@@ -29,6 +29,8 @@ petastorm
 pyarrow==10.0.1
 pacmap
 wandb
+birdnetlib
+resampy
 
 # developer tools
 jupyterlab
