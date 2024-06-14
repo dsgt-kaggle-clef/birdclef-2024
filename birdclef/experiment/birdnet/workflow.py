@@ -11,8 +11,6 @@ from birdclef.utils import spark_resource
 class EmbedSpeciesAudio(luigi.Task):
     """Embed all audio files for a species and save to a parquet file."""
 
-    model = luigi.Parameter()
-
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
 
@@ -48,8 +46,6 @@ class EmbedSpeciesAudio(luigi.Task):
 
 
 class EmbedWorkflow(luigi.Task):
-    model = luigi.Parameter()
-
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
 
@@ -67,7 +63,6 @@ class EmbedWorkflow(luigi.Task):
         tasks = []
         for species in species_list:
             task = EmbedSpeciesAudio(
-                model=self.model,
                 remote_root=self.remote_root,
                 local_root=self.local_root,
                 audio_path=self.audio_path,
@@ -84,6 +79,28 @@ class EmbedWorkflow(luigi.Task):
             ).repartition(self.partitions).write.parquet(
                 f"{self.remote_root}/{self.output_path}", mode="overwrite"
             )
+
+
+class Workflow(luigi.Task):
+    remote_root = luigi.Parameter()
+    local_root = luigi.Parameter()
+
+    audio_path = luigi.Parameter()
+    metadata_path = luigi.Parameter()
+    intermediate_path = luigi.Parameter()
+    output_path = luigi.Parameter()
+
+    def run():
+        yield EmbedWorkflow(
+            remote_root=self.remote_root,
+            local_root=self.local_root,
+            audio_path=self.audio_path,
+            metadata_path=self.metadata_path,
+            intermediate_path=self.intermediate_path,
+            output_path=self.output_path,
+        )
+
+        # TODO: train workflow
 
 
 def parse_args():
@@ -111,7 +128,7 @@ if __name__ == "__main__":
     args = parse_args()
     luigi.build(
         [
-            EmbedWorkflow(
+            Workflow(
                 **{
                     k: v
                     for k, v in vars(args).items()

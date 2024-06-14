@@ -22,7 +22,7 @@ class BirdNetInference(Inference):
         self.resampler = Resample(32_000, 48_000)
         self.source_sr = 32_000
         self.target_sr = 48_000
-        self.analyzer = Analyzer()
+        self.analyzer = Analyzer(verbose=False)
 
     def load(self, path: str, window_sec: int = 5) -> np.ndarray:
         """Load an audio file.
@@ -47,7 +47,11 @@ class BirdNetInference(Inference):
 
     def _infer(self, audio):
         recording = RecordingBuffer(
-            self.analyzer, audio.squeeze(), self.target_sr, overlap=1
+            self.analyzer,
+            audio.squeeze(),
+            self.target_sr,
+            overlap=1,
+            verbose=False,
         )
         recording.extract_embeddings()
         # concatenate the embeddings together, this should only be two of them
