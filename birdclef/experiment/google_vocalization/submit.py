@@ -81,6 +81,7 @@ if __name__ == "__main__":
     )
 
     # 10 samples in 570 seconds
+    # 20 soundscapes compiled in 2:48
     model_name = "torch-v1-google-twolayer-asl-gamma_neg4-gamma_pos1-hidden256"
     model_type = "two_layer"
     make_submission(

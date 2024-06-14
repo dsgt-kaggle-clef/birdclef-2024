@@ -19,6 +19,7 @@ def make_submission(
     model_type: str = "linear",
     batch_size: int = 32,
     num_workers: int = 0,
+    use_compiled: bool = True,
     limit=None,
     should_profile=False,
 ):
@@ -28,6 +29,7 @@ def make_submission(
         metadata_path=metadata_path,
         batch_size=batch_size,
         num_workers=num_workers,
+        use_compiled=use_compiled,
         limit=limit,
     )
     kwargs = dict()
@@ -77,7 +79,8 @@ if __name__ == "__main__":
         scheduler_host="services.us-central1-a.c.dsgt-clef-2024.internal",
     )
 
-    # 10 samples in 570 seconds
+    # 20 samples in 7:26 with vanilla
+    # 20 samples in 6:54 with openvino
     model_name = "torch-v1-encodec-linear-asl"
     model_type = "linear"
     make_submission(
@@ -88,5 +91,6 @@ if __name__ == "__main__":
         model_type,
         num_workers=0,
         limit=20,
-        should_profile=False,
+        use_compiled=True,
+        should_profile=True,
     )
