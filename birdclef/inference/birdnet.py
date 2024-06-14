@@ -64,7 +64,6 @@ class BirdNetInference(Inference):
         :param window: The size of the window to split the audio into.
         """
         audio = self.load(path, window).numpy()
-        print(audio.shape)
         embeddings = []
         for row in audio:
             embeddings.append(self._infer(row))
