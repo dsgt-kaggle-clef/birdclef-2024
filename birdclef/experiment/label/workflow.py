@@ -1,7 +1,10 @@
+import binascii
 from argparse import ArgumentParser
+from pathlib import Path
 
 import luigi
 import pandas as pd
+import tqdm
 
 from birdclef.config import DEFAULT_VOCALIZATION_MODEL_PATH
 from birdclef.inference.encodec import EncodecInference
@@ -138,33 +141,128 @@ class EncodecWorkflow(BaseSpeciesWorkflow):
         )
 
 
+class EmbedSoundscapesAudio(luigi.Task):
+    """Embed soundscapes embeddings"""
+
+    remote_root = luigi.Parameter()
+    local_root = luigi.Parameter()
+
+    audio_path = luigi.Parameter()
+    metadata_path = luigi.Parameter()
+    output_path = luigi.Parameter()
+
+    total_batches = luigi.IntParameter(default=100)
+    batch_number = luigi.IntParameter()
+
+    def output(self):
+        return maybe_gcs_target(
+            f"{self.remote_root}/{self.output_path}/{self.batch_number:03d}/_SUCCESS"
+        )
+
+    def run(self):
+        yield RsyncGCSFiles(
+            src_path=f"{self.remote_root}/{self.audio_path}/",
+            dst_path=f"{self.local_root}/{self.audio_path}/",
+        )
+
+        paths = sorted(Path(f"{self.local_root}/{self.audio_path}").glob("*.ogg"))
+        # now only keep the audio files that belong to the same hash
+        paths = [
+            path
+            for path in paths
+            if (binascii.crc32(path.stem.encode()) % self.total_batches)
+            == self.batch_number
+        ]
+
+        inference = self.get_inference()
+        for path in tqdm.tqdm(paths):
+            df = inference.predict_df(path.parent, path.name)
+            out_path = f"{self.remote_root}/{self.output_path}/{self.batch_number:03d}/{path.stem}.parquet"
+            df.to_parquet(out_path, index=False)
+
+    def get_inference(self):
+        metadata_path = f"{self.remote_root}/{self.metadata_path}"
+        return GoogleVocalizationInference(
+            metadata_path=metadata_path,
+            use_compiled=True,
+        )
+
+
+class EmbedSoundscapesAudioWorkflow(luigi.Task):
+    remote_root = luigi.Parameter()
+    local_root = luigi.Parameter()
+
+    audio_path = luigi.Parameter()
+    metadata_path = luigi.Parameter()
+    intermediate_path = luigi.Parameter()
+    output_path = luigi.Parameter()
+
+    total_batches = luigi.IntParameter(default=100)
+    num_partitions = luigi.IntParameter(default=16)
+
+    def output(self):
+        return maybe_gcs_target(f"{self.remote_root}/{self.output_path}/_SUCCESS")
+
+    def run(self):
+        yield [
+            EmbedSoundscapesAudio(
+                remote_root=self.remote_root,
+                local_root=self.local_root,
+                audio_path=self.audio_path,
+                metadata_path=self.metadata_path,
+                output_path=self.intermediate_path,
+                total_batches=self.total_batches,
+                batch_number=i,
+            )
+            for i in range(self.total_batches)
+        ]
+
+        with spark_resource(memory="16g") as spark:
+            spark.read.parquet(
+                f"{self.remote_root}/{self.intermediate_path}/*/*.parquet"
+            ).repartition(self.partitions).write.parquet(
+                f"{self.remote_root}/{self.output_path}", mode="overwrite"
+            )
+
+
 class Workflow(luigi.Task):
     remote_root = luigi.Parameter(default="gs://dsgt-clef-birdclef-2024/data")
     local_root = luigi.Parameter(default="/mnt/data")
-    audio_path = luigi.Parameter(default="raw/birdclef-2024/train_audio")
+    train_audio_path = luigi.Parameter(default="raw/birdclef-2024/train_audio")
+    unlabeled_soundscapes_path = luigi.Parameter(
+        default="raw/birdclef-2024/unlabeled_soundscapes"
+    )
     metadata_path = luigi.Parameter(default="raw/birdclef-2024/train_metadata.csv")
 
     def run(self):
         common_args = dict(
             remote_root=self.remote_root,
             local_root=self.local_root,
-            audio_path=self.audio_path,
             metadata_path=self.metadata_path,
         )
         yield [
             VocalizationWorkflow(
                 **common_args,
+                audio_path=self.train_audio_path,
                 intermediate_path=f"intermediate/google_embeddings/v1",
                 output_path=f"processed/google_embeddings/v1",
             ),
+            EmbedSoundscapesAudioWorkflow(
+                **common_args,
+                audio_path=self.unlabeled_soundscapes_path,
+                intermediate_path=f"intermediate/google_soundscape_embeddings/v1",
+                output_path=f"processed/google_soundscape_embeddings/v1",
+            ),
             EncodecWorkflow(
                 **common_args,
+                audio_path=self.train_audio_path,
                 intermediate_path=f"intermediate/encodec_embeddings/v1",
                 output_path=f"processed/encodec_embeddings/v1",
                 bandwidth=1.5,
             ),
             EncodecWorkflow(
                 **common_args,
+                audio_path=self.train_audio_path,
                 intermediate_path=f"intermediate/encodec_embeddings/v2",
                 output_path=f"processed/encodec_embeddings/v2",
                 bandwidth=3.0,
