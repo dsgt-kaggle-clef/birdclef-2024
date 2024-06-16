@@ -95,7 +95,8 @@ class EmbedWorkflow(luigi.Task):
 
 
 class TrainClassifier(luigi.Task):
-    input_path = luigi.Parameter()
+    input_birdnet_path = luigi.Parameter()
+    input_google_path = luigi.Parameter()
     default_model_dir = luigi.Parameter()
     label_col = luigi.Parameter()
     feature_col = luigi.Parameter()
@@ -123,7 +124,8 @@ class TrainClassifier(luigi.Task):
             # data module
             data_module = PetastormDataModule(
                 spark,
-                self.input_path,
+                self.input_birdnet_path,
+                self.input_google_path,
                 self.label_col,
                 self.feature_col,
                 self.batch_size,
@@ -180,7 +182,7 @@ class TrainClassifier(luigi.Task):
                 max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 reload_dataloaders_every_n_epochs=1,
-                default_model_dir=self.default_model_dir,
+                default_root_dir=self.default_model_dir,
                 logger=wandb_logger,
                 callbacks=[
                     EarlyStopping(monitor="val_auroc", mode="max"),
@@ -227,7 +229,8 @@ class Workflow(luigi.Task):
     metadata_path = luigi.Parameter()
     intermediate_path = luigi.Parameter()
     output_path = luigi.Parameter()
-    input_path = luigi.Parameter()
+    input_birdnet_path = luigi.Parameter()
+    input_google_path = luigi.Parameter()
     default_model_dir = luigi.Parameter()
 
     def run(self):
@@ -242,9 +245,8 @@ class Workflow(luigi.Task):
                 intermediate_path=self.intermediate_path,
                 output_path=self.output_path,
             )
-
+        # train model
         if train_model:
-            # TODO: train workflow
             label_col, feature_col = "logits", "embedding"
             # get hyperparameter config
             hp = HyperparameterGrid()
@@ -259,7 +261,8 @@ class Workflow(luigi.Task):
                         f"{self.default_model_dir}-{model}-{loss}-species-label"
                     )
                 yield TrainClassifier(
-                    input_path=self.input_path,
+                    input_birdnet_path=self.input_birdnet_path,
+                    input_google_path=self.input_google_path,
                     default_model_dir=default_dir,
                     label_col=label_col,
                     feature_col=feature_col,
@@ -297,7 +300,8 @@ def parse_args():
 
     default_out_folder = "birdnet"
     gcs_root_path = "gs://dsgt-clef-birdclef-2024"
-    train_data_path = f"data/processed/{default_out_folder}/v1"
+    train_data_google_path = f"data/processed/google_embeddings/v1"
+    train_data_birdnet_path = f"data/processed/{default_out_folder}/v1"
     model_dir_path = f"models/torch-v1-{default_out_folder}"
     defaults = {
         "remote-root": "gs://dsgt-clef-birdclef-2024/data",
@@ -308,7 +312,8 @@ def parse_args():
         "output-path": f"processed/{default_out_folder}/v1",
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
         "workers": 1,
-        "input_path": f"{gcs_root_path}/{train_data_path}",
+        "input_birdnet_path": f"{gcs_root_path}/{train_data_birdnet_path}",
+        "input_google_path": f"{gcs_root_path}/{train_data_google_path}",
         "default_model_dir": f"{gcs_root_path}/{model_dir_path}",
     }
 
