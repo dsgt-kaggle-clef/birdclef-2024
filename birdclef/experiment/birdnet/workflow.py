@@ -15,7 +15,6 @@ from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from birdclef.experiment.birdnet.data import PetastormDataModule
-from birdclef.experiment.google_vocalization.data import PetastormDataModule
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 from birdclef.inference.birdnet import BirdNetInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
@@ -232,59 +231,65 @@ class Workflow(luigi.Task):
     default_model_dir = luigi.Parameter()
 
     def run(self):
-        yield EmbedWorkflow(
-            remote_root=self.remote_root,
-            local_root=self.local_root,
-            audio_path=self.audio_path,
-            metadata_path=self.metadata_path,
-            intermediate_path=self.intermediate_path,
-            output_path=self.output_path,
-        )
-
-        # TODO: train workflow
-        label_col, feature_col = "logits", "embedding"
-        # get hyperparameter config
-        hp = HyperparameterGrid()
-        _, loss_params, hidden_layers = hp.get_hyperparameter_config()
-
-        # Linear model grid search
-        model, species_label = "linear", False
-        for loss in loss_params:
-            default_dir = f"{self.default_model_dir}-{model}-{loss}"
-            if species_label:
-                default_dir = f"{self.default_model_dir}-{model}-{loss}-species-label"
-            yield TrainClassifier(
-                input_path=self.input_path,
-                default_model_dir=default_dir,
-                label_col=label_col,
-                feature_col=feature_col,
-                loss=loss,
-                model=model,
-                species_label=species_label,
+        run_embed_workflow = False
+        train_model = True
+        if run_embed_workflow:
+            yield EmbedWorkflow(
+                remote_root=self.remote_root,
+                local_root=self.local_root,
+                audio_path=self.audio_path,
+                metadata_path=self.metadata_path,
+                intermediate_path=self.intermediate_path,
+                output_path=self.output_path,
             )
 
-        # # TwoLayer model grid search
-        # model, hidden_layer_size, species_label = "two_layer", 256, True
-        # for loss in loss_params:
-        #     for hp_params in self.generate_loss_hp_params(loss_params[loss]):
-        #         param_log = [f"{k}{v}" for k, v in hp_params.items()]
-        #         if len(param_log) > 0:
-        #             param_name = "-".join(param_log)
-        #             default_dir = f"{self.default_model_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}"
-        #             if species_label:
-        #                 default_dir = f"{default_dir}-species-label"
-        #             yield TrainClassifier(
-        #                 input_path=self.input_path,
-        #                 default_model_dir=default_dir,
-        #                 label_col=label_col,
-        #                 feature_col=feature_col,
-        #                 loss=loss,
-        #                 model=model,
-        #                 hidden_layer_size=hidden_layer_size,
-        #                 hyper_params=hp_params,
-        #                 species_label=species_label,
-        #                 two_layer=True,
-        #             )
+        if train_model:
+            # TODO: train workflow
+            label_col, feature_col = "logits", "embedding"
+            # get hyperparameter config
+            hp = HyperparameterGrid()
+            _, loss_params, hidden_layers = hp.get_hyperparameter_config()
+
+            # Linear model grid search
+            model, species_label = "linear", False
+            for loss in loss_params:
+                default_dir = f"{self.default_model_dir}-{model}-{loss}"
+                if species_label:
+                    default_dir = (
+                        f"{self.default_model_dir}-{model}-{loss}-species-label"
+                    )
+                yield TrainClassifier(
+                    input_path=self.input_path,
+                    default_model_dir=default_dir,
+                    label_col=label_col,
+                    feature_col=feature_col,
+                    loss=loss,
+                    model=model,
+                    species_label=species_label,
+                )
+
+            # # TwoLayer model grid search
+            # model, hidden_layer_size, species_label = "two_layer", 256, True
+            # for loss in loss_params:
+            #     for hp_params in self.generate_loss_hp_params(loss_params[loss]):
+            #         param_log = [f"{k}{v}" for k, v in hp_params.items()]
+            #         if len(param_log) > 0:
+            #             param_name = "-".join(param_log)
+            #             default_dir = f"{self.default_model_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}"
+            #             if species_label:
+            #                 default_dir = f"{default_dir}-species-label"
+            #             yield TrainClassifier(
+            #                 input_path=self.input_path,
+            #                 default_model_dir=default_dir,
+            #                 label_col=label_col,
+            #                 feature_col=feature_col,
+            #                 loss=loss,
+            #                 model=model,
+            #                 hidden_layer_size=hidden_layer_size,
+            #                 hyper_params=hp_params,
+            #                 species_label=species_label,
+            #                 two_layer=True,
+            #             )
 
 
 def parse_args():
@@ -302,7 +307,7 @@ def parse_args():
         "intermediate-path": f"intermediate/{default_out_folder}/v1",
         "output-path": f"processed/{default_out_folder}/v1",
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
-        "workers": 2,
+        "workers": 1,
         "input_path": f"{gcs_root_path}/{train_data_path}",
         "default_model_dir": f"{gcs_root_path}/{model_dir_path}",
     }

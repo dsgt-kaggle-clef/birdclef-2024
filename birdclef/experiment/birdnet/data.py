@@ -174,6 +174,8 @@ class PetastormDataModule(pl.LightningDataModule):
             # read data
             df = self.spark.read.parquet(self.input_path).cache()
             df_species = df.withColumn("species_index", species_index_udf("name"))
+            ## DEBUG
+            df.show()
 
             # train/valid Split
             self.train_data, self.valid_data = self._train_valid_split(df=df_species)
