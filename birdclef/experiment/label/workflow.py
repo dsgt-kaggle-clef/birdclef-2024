@@ -176,9 +176,15 @@ class EmbedSoundscapesAudio(luigi.Task):
 
         inference = self.get_inference()
         for path in tqdm.tqdm(paths):
-            df = inference.predict_df(path.parent, path.name)
             out_path = f"{self.remote_root}/{self.output_path}/{self.batch_number:03d}/{path.stem}.parquet"
+            if maybe_gcs_target(out_path).exists():
+                continue
+            df = inference.predict_df(path.parent, path.name)
             df.to_parquet(out_path, index=False)
+
+        # write success
+        with self.output().open("w") as f:
+            f.write("")
 
     def get_inference(self):
         metadata_path = f"{self.remote_root}/{self.metadata_path}"
