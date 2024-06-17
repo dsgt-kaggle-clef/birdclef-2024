@@ -56,6 +56,9 @@ class EmbedWorkflow(luigi.Task):
 
     partitions = luigi.IntParameter(default=16)
 
+    def output(self):
+        return maybe_gcs_target(f"{self.remote_root}/{self.output_path}/_SUCCESS")
+
     def run(self):
         metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
         species_list = metadata["primary_label"].unique()
