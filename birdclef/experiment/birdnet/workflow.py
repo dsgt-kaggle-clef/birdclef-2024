@@ -178,9 +178,11 @@ class TrainClassifier(luigi.Task):
             )
 
             # trainer
+            print(f"\ndevice: {'gpu' if torch.cuda.is_available() else 'cpu'}\n")
             trainer = pl.Trainer(
                 max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
+                devices=1,
                 reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_model_dir,
                 logger=wandb_logger,
