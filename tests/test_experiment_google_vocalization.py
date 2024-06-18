@@ -13,6 +13,12 @@ from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 from birdclef.utils import get_spark
 
 
+def test_gpu_available():
+    assert torch.cuda.is_available(), "CUDA is not available"
+    assert torch.cuda.device_count() > 0, "No CUDA devices found"
+    assert torch.cuda.get_device_name(0) != "", "CUDA device name is empty"
+
+
 # Function to create a mock Spark DataFrame
 # Create a mock Spark DataFrame
 @pytest.fixture(scope="session")

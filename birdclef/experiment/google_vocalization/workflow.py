@@ -104,7 +104,7 @@ class TrainClassifier(luigi.Task):
                 max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 reload_dataloaders_every_n_epochs=1,
-                default_root_dir=self.default_root_dir,
+                default_root_dir=self.default_model_dir,
                 logger=wandb_logger,
                 callbacks=[
                     EarlyStopping(monitor="val_auroc", mode="max"),
