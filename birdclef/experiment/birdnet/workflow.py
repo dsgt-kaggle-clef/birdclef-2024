@@ -101,8 +101,8 @@ class TrainClassifier(luigi.Task):
     input_birdnet_path = luigi.Parameter()
     input_google_path = luigi.Parameter()
     default_model_dir = luigi.Parameter()
-    label_col = luigi.Parameter()
-    feature_col = luigi.Parameter()
+    label_col = luigi.Parameter(default="logits")
+    feature_col = luigi.Parameter(default="embedding")
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
@@ -160,6 +160,7 @@ class TrainClassifier(luigi.Task):
                     num_labels,
                     loss=self.loss,
                     species_label=self.species_label,
+                    hp_kwargs=self.hyper_params,
                 )
 
             # initialise the wandb logger and name your wandb project
@@ -210,7 +211,7 @@ class HyperparameterGrid:
         # Model and Loss mappings
         model_params = {
             "linear": LinearClassifier,
-            "two_layer": TwoLayerClassifier,
+            "twolayer": TwoLayerClassifier,
         }
         loss_params = {
             "bce": {},
@@ -238,66 +239,84 @@ class Workflow(luigi.Task):
     input_google_path = luigi.Parameter()
     default_model_dir = luigi.Parameter()
 
-    def run(self):
-        run_embed_workflow = False
-        train_model = True
-        if run_embed_workflow:
-            yield EmbedWorkflow(
-                remote_root=self.remote_root,
-                local_root=self.local_root,
-                audio_path=self.audio_path,
-                metadata_path=self.metadata_path,
-                intermediate_path=self.intermediate_path,
-                output_path=self.output_path,
-            )
-        # train model
-        if train_model:
-            label_col, feature_col = "logits", "embedding"
-            # get hyperparameter config
-            hp = HyperparameterGrid()
-            _, loss_params, hidden_layers = hp.get_hyperparameter_config()
+    def generate_loss_hp_params(self, loss_params):
+        """Generate all combinations of hyperparameters for a given loss function."""
+        if not loss_params:
+            return [{}]
 
-            # Linear model grid search
-            model, species_label = "linear", False
-            for loss in loss_params:
-                default_dir = f"{self.default_model_dir}-{model}-{loss}"
+        keys, values = zip(*loss_params.items())
+        combinations = [
+            dict(zip(keys, combination)) for combination in itertools.product(*values)
+        ]
+        return combinations
+
+    def generate_hp_parameters(self, model, species_label, loss_params, **kwargs):
+        for loss in loss_params:
+            for hp_params in self.generate_loss_hp_params(loss_params[loss]):
+                param_log = [f"{k}{v}" for k, v in hp_params.items()]
+                if len(param_log) > 0:
+                    param_name = "-".join(param_log)
+                else:
+                    param_name = "default"
+                default_dir = f"{self.default_model_dir}-{model}-{loss}-{param_name}"
                 if species_label:
-                    default_dir = (
-                        f"{self.default_model_dir}-{model}-{loss}-species-label"
-                    )
-                yield TrainClassifier(
+                    default_dir = f"{default_dir}-species-label"
+                yield dict(
                     input_birdnet_path=self.input_birdnet_path,
                     input_google_path=self.input_google_path,
                     default_model_dir=default_dir,
-                    label_col=label_col,
-                    feature_col=feature_col,
                     loss=loss,
                     model=model,
+                    hyper_params=hp_params,
                     species_label=species_label,
+                    **kwargs,
                 )
 
-            # # TwoLayer model grid search
-            # model, hidden_layer_size, species_label = "two_layer", 256, True
-            # for loss in loss_params:
-            #     for hp_params in self.generate_loss_hp_params(loss_params[loss]):
-            #         param_log = [f"{k}{v}" for k, v in hp_params.items()]
-            #         if len(param_log) > 0:
-            #             param_name = "-".join(param_log)
-            #             default_dir = f"{self.default_model_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}"
-            #             if species_label:
-            #                 default_dir = f"{default_dir}-species-label"
-            #             yield TrainClassifier(
-            #                 input_path=self.input_path,
-            #                 default_model_dir=default_dir,
-            #                 label_col=label_col,
-            #                 feature_col=feature_col,
-            #                 loss=loss,
-            #                 model=model,
-            #                 hidden_layer_size=hidden_layer_size,
-            #                 hyper_params=hp_params,
-            #                 species_label=species_label,
-            #                 two_layer=True,
-            #             )
+    def run(self):
+        yield EmbedWorkflow(
+            remote_root=self.remote_root,
+            local_root=self.local_root,
+            audio_path=self.audio_path,
+            metadata_path=self.metadata_path,
+            intermediate_path=self.intermediate_path,
+            output_path=self.output_path,
+        )
+
+        hp = HyperparameterGrid()
+        _, loss_params, hidden_layers = hp.get_hyperparameter_config()
+
+        tasks = []
+        for model, species_label in [("linear", False), ("linear", True)]:
+            for kwargs in self.generate_hp_parameters(
+                model, species_label, loss_params
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+        yield tasks
+
+        # now test the default two layer model over the different hidden layer sizes
+        tasks = []
+        for model, species_label in [("twolayer", False), ("twolayer", True)]:
+            for hidden_layer_size in hidden_layers:
+                for kwargs in self.generate_hp_parameters(
+                    model,
+                    species_label,
+                    {"bce": {}},
+                    hidden_layer_size=hidden_layer_size,
+                ):
+                    tasks.append(TrainClassifier(**kwargs))
+        yield tasks
+
+        tasks = []
+        model, hidden_layer_size = "two_layer", 256
+        for species_label in [False, True]:
+            for kwargs in self.generate_hp_parameters(
+                model,
+                species_label,
+                loss_params,
+                hidden_layer_size=hidden_layer_size,
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+        yield tasks
 
 
 def parse_args():
@@ -305,7 +324,7 @@ def parse_args():
 
     default_out_folder = "birdnet"
     gcs_root_path = "gs://dsgt-clef-birdclef-2024"
-    train_data_google_path = f"data/processed/google_embeddings/v1"
+    train_data_google_path = "data/processed/google_embeddings/v1"
     train_data_birdnet_path = f"data/processed/{default_out_folder}/v1"
     model_dir_path = f"models/torch-v1-{default_out_folder}"
     defaults = {
