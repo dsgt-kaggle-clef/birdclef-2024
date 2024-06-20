@@ -119,7 +119,7 @@ class TrainClassifier(luigi.Task):
     def run(self):
         # Hyperparameters
         hp = HyperparameterGrid()
-        model_params, loss_params, _ = hp.get_hyperparameter_config()
+        model_params, _, _ = hp.get_hyperparameter_config()
         # get model and loss objects
         torch_model = model_params[self.model]
 
@@ -186,7 +186,6 @@ class TrainClassifier(luigi.Task):
             trainer = pl.Trainer(
                 max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
-                devices=1,
                 reload_dataloaders_every_n_epochs=1,
                 default_root_dir=self.default_model_dir,
                 logger=wandb_logger,
@@ -286,7 +285,7 @@ class Workflow(luigi.Task):
         _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
         tasks = []
-        for model, species_label in [("linear", False), ("linear", True)]:
+        for model, species_label in [("linear", False)]:
             for kwargs in self.generate_hp_parameters(
                 model, species_label, loss_params
             ):
@@ -306,17 +305,17 @@ class Workflow(luigi.Task):
                     tasks.append(TrainClassifier(**kwargs))
         yield tasks
 
-        tasks = []
-        model, hidden_layer_size = "two_layer", 256
-        for species_label in [False, True]:
-            for kwargs in self.generate_hp_parameters(
-                model,
-                species_label,
-                loss_params,
-                hidden_layer_size=hidden_layer_size,
-            ):
-                tasks.append(TrainClassifier(**kwargs))
-        yield tasks
+        # tasks = []
+        # model, hidden_layer_size = "two_layer", 256
+        # for species_label in [False, True]:
+        #     for kwargs in self.generate_hp_parameters(
+        #         model,
+        #         species_label,
+        #         loss_params,
+        #         hidden_layer_size=hidden_layer_size,
+        #     ):
+        #         tasks.append(TrainClassifier(**kwargs))
+        # yield tasks
 
 
 def parse_args():
