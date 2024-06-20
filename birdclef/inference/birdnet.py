@@ -1,3 +1,17 @@
+import tensorflow as tf
+
+# We don't want to run BirdNET on a GPU
+# https://datascience.stackexchange.com/a/76039
+try:
+    # Disable all GPUS
+    tf.config.set_visible_devices([], "GPU")
+    visible_devices = tf.config.get_visible_devices()
+    for device in visible_devices:
+        assert device.device_type != "GPU"
+except Exception:
+    # Invalid device or cannot modify virtual devices once initialized.
+    pass
+
 import numpy as np
 import pandas as pd
 import torch
