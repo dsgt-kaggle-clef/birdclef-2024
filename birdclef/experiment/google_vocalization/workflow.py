@@ -21,8 +21,8 @@ from birdclef.utils import spark_resource
 class TrainClassifier(luigi.Task):
     input_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
-    label_col = luigi.Parameter()
-    feature_col = luigi.Parameter()
+    label_col = luigi.Parameter(default="logits")
+    feature_col = luigi.Parameter(default="embedding")
     loss = luigi.Parameter()
     model = luigi.Parameter()
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
@@ -50,8 +50,9 @@ class TrainClassifier(luigi.Task):
                 self.input_path,
                 self.label_col,
                 self.feature_col,
-                self.batch_size,
-                self.num_partitions,
+                species_label=self.species_label,
+                batch_size=self.batch_size,
+                num_partitions=self.num_partitions,
             )
             data_module.setup()
 
@@ -78,6 +79,7 @@ class TrainClassifier(luigi.Task):
                     num_features,
                     num_labels,
                     loss=self.loss,
+                    hp_kwargs=self.hyper_params,
                     species_label=self.species_label,
                 )
 
@@ -104,7 +106,7 @@ class TrainClassifier(luigi.Task):
                 max_epochs=20,
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 reload_dataloaders_every_n_epochs=1,
-                default_root_dir=self.default_model_dir,
+                default_root_dir=self.default_root_dir,
                 logger=wandb_logger,
                 callbacks=[
                     EarlyStopping(monitor="val_auroc", mode="max"),
@@ -139,6 +141,10 @@ class HyperparameterGrid:
             #     "S": [-1, -15, -30],
             #     "E": [0, 1, 2],
             # },
+            "sigmoidf1": {
+                "S": [-30],
+                "E": [0],
+            },
         }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
@@ -146,8 +152,8 @@ class HyperparameterGrid:
 
 class Workflow(luigi.Task):
     input_path = luigi.Parameter()
-    output_path = luigi.Parameter()
     default_root_dir = luigi.Parameter()
+    enable_species_label = luigi.BoolParameter(default=True)
 
     def generate_loss_hp_params(self, loss_params):
         """Generate all combinations of hyperparameters for a given loss function."""
@@ -160,77 +166,78 @@ class Workflow(luigi.Task):
         ]
         return combinations
 
-    def run(self):
-        label_col, feature_col = "logits", "embedding"
-        # get hyperparameter config
-        hp = HyperparameterGrid()
-        _, loss_params, hidden_layers = hp.get_hyperparameter_config()
-
-        # Linear model grid search
-        model, species_label = "linear", True
-        for loss in loss_params:
-            default_dir = f"{self.default_root_dir}-{model}-{loss}"
-            if species_label:
-                default_dir = f"{self.default_root_dir}-{model}-{loss}-species-label"
-            yield TrainClassifier(
-                input_path=self.input_path,
-                default_root_dir=default_dir,
-                label_col=label_col,
-                feature_col=feature_col,
-                loss=loss,
-                model=model,
-                species_label=species_label,
-            )
-
-        # TwoLayer model grid search
-        model, hidden_layer_size, species_label = "two_layer", 256, True
+    def generate_hp_parameters(self, model, species_label, loss_params, **kwargs):
         for loss in loss_params:
             for hp_params in self.generate_loss_hp_params(loss_params[loss]):
                 param_log = [f"{k}{v}" for k, v in hp_params.items()]
                 if len(param_log) > 0:
                     param_name = "-".join(param_log)
-                    default_dir = f"{self.default_root_dir}-twolayer-{loss}-{param_name}-hidden{hidden_layer_size}"
-                    if species_label:
-                        default_dir = f"{default_dir}-species-label"
-                    yield TrainClassifier(
-                        input_path=self.input_path,
-                        default_root_dir=default_dir,
-                        label_col=label_col,
-                        feature_col=feature_col,
-                        loss=loss,
-                        model=model,
-                        hidden_layer_size=hidden_layer_size,
-                        hyper_params=hp_params,
-                        species_label=species_label,
-                        two_layer=True,
-                    )
+                else:
+                    param_name = "default"
+                default_dir = f"{self.default_root_dir}-{model}-{loss}-{param_name}"
+                if species_label:
+                    default_dir = f"{default_dir}-species-label"
+                yield dict(
+                    input_path=self.input_path,
+                    default_root_dir=default_dir,
+                    loss=loss,
+                    model=model,
+                    hyper_params=hp_params,
+                    species_label=species_label,
+                    **kwargs,
+                )
+
+    def run(self):
+        hp = HyperparameterGrid()
+        _, loss_params, hidden_layers = hp.get_hyperparameter_config()
+
+        tasks = []
+        for model, species_label in [("linear", False), ("linear", True)]:
+            if not self.enable_species_label and species_label:
+                continue
+            for kwargs in self.generate_hp_parameters(
+                model, species_label, loss_params
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+        # yield tasks
+
+        # now test the default two layer model over the different hidden layer sizes
+        # tasks = []
+        for model, species_label in [("twolayer", False), ("twolayer", True)]:
+            if not self.enable_species_label and species_label:
+                continue
+            for hidden_layer_size in hidden_layers:
+                for kwargs in self.generate_hp_parameters(
+                    model,
+                    species_label,
+                    {"bce": {}},
+                    hidden_layer_size=hidden_layer_size,
+                ):
+                    tasks.append(TrainClassifier(**kwargs))
+        # yield tasks
+
+        # tasks = []
+        model, hidden_layer_size = "two_layer", 256
+        for species_label in [False, True]:
+            if not self.enable_species_label and species_label:
+                continue
+            for kwargs in self.generate_hp_parameters(
+                model,
+                species_label,
+                loss_params,
+                hidden_layer_size=hidden_layer_size,
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+        yield tasks
 
 
 def parse_args():
-    parser = ArgumentParser(description="Luigi pipeline")
+    parser = ArgumentParser(description="Google Vocalization Workflow")
     parser.add_argument(
-        "--gcs-root-path",
+        "--root",
         type=str,
         default="gs://dsgt-clef-birdclef-2024",
         help="Root directory for birdclef-2024 in GCS",
-    )
-    parser.add_argument(
-        "--train-data-path",
-        type=str,
-        default="data/processed/google_embeddings/v1",
-        help="Root directory for training data in GCS",
-    )
-    parser.add_argument(
-        "--output-name-path",
-        type=str,
-        default="data/processed/google_embeddings/v1-transformed",
-        help="GCS path for output Parquet files",
-    )
-    parser.add_argument(
-        "--model-dir-path",
-        type=str,
-        default="models/torch-v1-google",
-        help="Default root directory for storing the pytorch classifier runs",
     )
     parser.add_argument(
         "--scheduler-host",
@@ -243,18 +250,19 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    # Input and output paths for training workflow
-    input_path = f"{args.gcs_root_path}/{args.train_data_path}"
-    output_path = f"{args.gcs_root_path}/{args.output_name_path}"
-    default_root_dir = f"{args.gcs_root_path}/{args.model_dir_path}"
 
     luigi.build(
         [
             Workflow(
-                input_path=input_path,
-                output_path=output_path,
-                default_root_dir=default_root_dir,
-            )
+                input_path=f"{args.root}/data/processed/google_embeddings/v1",
+                default_root_dir=f"{args.root}/models/torch-v1-google",
+                enable_species_label=True,
+            ),
+            Workflow(
+                input_path=f"{args.root}/data/processed/google_soundscape_embeddings/v1",
+                default_root_dir=f"{args.root}/models/torch-v1-google-soundscape",
+                enable_species_label=False,
+            ),
         ],
         scheduler_host=args.scheduler_host,
         workers=1,

@@ -5,7 +5,6 @@ from pathlib import Path
 import lightning as pl
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
-from pyspark.sql.types import IntegerType
 from torchvision.transforms import v2
 
 from birdclef.config import SPECIES
@@ -26,6 +25,7 @@ class PetastormDataModule(pl.LightningDataModule):
         input_path,
         label_col,
         feature_col,
+        species_label=True,
         batch_size=64,
         num_partitions=os.cpu_count(),
         workers_count=os.cpu_count(),
@@ -42,6 +42,7 @@ class PetastormDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_partitions = num_partitions
         self.workers_count = workers_count
+        self.species_label = species_label
 
     def _prepare_dataframe(self, df):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
@@ -72,20 +73,21 @@ class PetastormDataModule(pl.LightningDataModule):
             warnings.simplefilter(action="ignore", category=FutureWarning)
 
             # UDF to retrieve species index
-            def species_index(name):
+            @F.udf("integer")
+            def species_index_udf(name):
                 species = Path(name).parent.name
                 species_idx = SPECIES.index(species)
                 return species_idx
 
-            # register the UDF
-            species_index_udf = F.udf(species_index, IntegerType())
-
             # read data
             df = self.spark.read.parquet(self.input_path).cache()
-            df_species = df.withColumn("species_index", species_index_udf("name"))
+            df = df.withColumn(
+                "species_index",
+                species_index_udf("name") if self.species_label else F.lit(0),
+            )
 
             # train/valid Split
-            self.train_data, self.valid_data = self._train_valid_split(df=df_species)
+            self.train_data, self.valid_data = self._train_valid_split(df=df)
             print(
                 f"\ntrain count: {self.train_data.count()}\n"
                 f"valid count: {self.valid_data.count()}\n",
