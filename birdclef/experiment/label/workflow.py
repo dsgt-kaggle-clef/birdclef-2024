@@ -226,7 +226,7 @@ class EmbedSoundscapesAudioWorkflow(luigi.Task):
         with spark_resource(memory="16g") as spark:
             spark.read.parquet(
                 f"{self.remote_root}/{self.intermediate_path}/*/*.parquet"
-            ).repartition(self.partitions).write.parquet(
+            ).repartition(self.num_partitions).write.parquet(
                 f"{self.remote_root}/{self.output_path}", mode="overwrite"
             )
 
