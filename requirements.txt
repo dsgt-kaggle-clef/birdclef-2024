@@ -32,6 +32,8 @@ wandb
 # we prefer to use a version from a fork, but this breaks the installation on kaggle
 # pip install birdnetlib @ git+https://github.com/dsgt-kaggle-clef/birdnetlib.git#d84aa1f15a7244dadba6265ddc7453e19733cfbd
 birdnetlib
+# add hatchling as a dep
+hatchling
 resampy
 
 # developer tools
