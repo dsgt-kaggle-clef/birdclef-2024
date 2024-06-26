@@ -115,9 +115,10 @@ class PetastormDataModule(pl.LightningDataModule):
         self,
         spark,
         input_birdnet_path,
-        input_google_path,
         label_col,
         feature_col,
+        # optional: will be used to join if it exists
+        input_google_path=None,
         batch_size=64,
         num_partitions=os.cpu_count(),
         workers_count=os.cpu_count(),
@@ -165,23 +166,21 @@ class PetastormDataModule(pl.LightningDataModule):
             warnings.simplefilter(action="ignore", category=FutureWarning)
 
             # UDF to retrieve species index
-            def species_index(name):
+            @F.udf("integer")
+            def species_index_udf(name):
                 species = Path(name).parent.name
                 species_idx = SPECIES.index(species)
                 return species_idx
 
-            # register the UDF
-            species_index_udf = F.udf(species_index, IntegerType())
-
             # read data
-            birdnet_df = self.spark.read.parquet(self.input_birdnet_path).cache()
-            google_df = self.spark.read.parquet(self.input_google_path).cache()
-            df = birdnet_df.join(
-                google_df.select("name", "chunk_5s", self.label_col),
-                on=["name", "chunk_5s"],
-                how="inner",
-            )
-            df_species = df.withColumn("species_index", species_index_udf("name"))
+            df = self.spark.read.parquet(self.input_birdnet_path).cache()
+            if self.input_google_path is not None:
+                google_df = self.spark.read.parquet(self.input_google_path).cache()
+                df = df.join(
+                    google_df.select("name", "chunk_5s", self.label_col),
+                    on=["name", "chunk_5s"],
+                    how="inner",
+                ).withColumn("species_index", species_index_udf("name"))
 
             # train/valid Split
             self.train_data, self.valid_data = self._train_valid_split(df=df_species)

@@ -15,86 +15,54 @@ from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from birdclef.experiment.birdnet.data import PetastormDataModule
+from birdclef.experiment.label.workflow import (
+    BaseEmbedSoundscapesAudio,
+    BaseEmbedSoundscapesAudioWorkflow,
+    BaseEmbedSpeciesAudio,
+    BaseEmbedSpeciesWorkflow,
+)
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 from birdclef.inference.birdnet import BirdNetInference
 from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
 from birdclef.utils import spark_resource
 
 
-class EmbedSpeciesAudio(luigi.Task):
-    """Embed all audio files for a species and save to a parquet file."""
-
-    remote_root = luigi.Parameter()
-    local_root = luigi.Parameter()
-
-    audio_path = luigi.Parameter()
-    metadata_path = luigi.Parameter()
-    species = luigi.Parameter()
-    output_path = luigi.Parameter()
-
-    def output(self):
-        return maybe_gcs_target(
-            f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
-        )
-
-    def run(self):
-        yield RsyncGCSFiles(
-            src_path=f"{self.remote_root}/{self.audio_path}/{self.species}",
-            dst_path=f"{self.local_root}/{self.audio_path}/{self.species}",
-        )
-
-        inference = self.get_inference()
-        out_path = f"{self.remote_root}/{self.output_path}/{self.species}.parquet"
-        df = inference.predict_species_df(
-            f"{self.local_root}/{self.audio_path}",
-            self.species,
-            out_path,
-        )
-        print(df.head())
-
+class BirdNetEmbedSpeciesAudio(BaseEmbedSpeciesAudio):
     def get_inference(self):
         return BirdNetInference(
             metadata_path=f"{self.remote_root}/{self.metadata_path}",
         )
 
 
-class EmbedWorkflow(luigi.Task):
-    remote_root = luigi.Parameter()
-    local_root = luigi.Parameter()
+class BirdNetEmbedSpeciesWorkflow(BaseEmbedSpeciesWorkflow):
+    def get_task(self, species):
+        return BirdNetEmbedSpeciesAudio(
+            remote_root=self.remote_root,
+            local_root=self.local_root,
+            audio_path=self.audio_path,
+            metadata_path=self.metadata_path,
+            species=species,
+            output_path=self.intermediate_path,
+        )
 
-    audio_path = luigi.Parameter()
-    metadata_path = luigi.Parameter()
-    intermediate_path = luigi.Parameter()
-    output_path = luigi.Parameter()
 
-    partitions = luigi.IntParameter(default=16)
+class BirdNetEmbedSoundscapesAudio(BaseEmbedSoundscapesAudio):
+    def get_inference(self):
+        return BirdNetInference(
+            metadata_path=f"{self.remote_root}/{self.metadata_path}",
+        )
 
-    def output(self):
-        return maybe_gcs_target(f"{self.remote_root}/{self.output_path}/_SUCCESS")
 
-    def run(self):
-        metadata = pd.read_csv(f"{self.remote_root}/{self.metadata_path}")
-        species_list = metadata["primary_label"].unique()
-
-        tasks = []
-        for species in species_list:
-            task = EmbedSpeciesAudio(
-                remote_root=self.remote_root,
-                local_root=self.local_root,
-                audio_path=self.audio_path,
-                metadata_path=self.metadata_path,
-                species=species,
-                output_path=self.intermediate_path,
-            )
-            tasks.append(task)
-        yield tasks
-
-        with spark_resource(memory="16g") as spark:
-            spark.read.parquet(
-                f"{self.remote_root}/{self.intermediate_path}/*.parquet"
-            ).repartition(self.partitions).write.parquet(
-                f"{self.remote_root}/{self.output_path}", mode="overwrite"
-            )
+class BirdNetEmbedSoundscapesAudioWorkflow(BaseEmbedSoundscapesAudioWorkflow):
+    def get_task(self, batch_number):
+        return BirdNetEmbedSoundscapesAudio(
+            remote_root=self.remote_root,
+            local_root=self.local_root,
+            audio_path=self.audio_path,
+            metadata_path=self.metadata_path,
+            output_path=self.intermediate_path,
+            batch_number=batch_number,
+        )
 
 
 class TrainClassifier(luigi.Task):
@@ -214,28 +182,26 @@ class HyperparameterGrid:
         }
         loss_params = {
             "bce": {},
+            # "asl": {
+            #     "gamma_neg": [0, 2, 4],
+            #     "gamma_pos": [0, 1],
+            # },
             "asl": {
-                "gamma_neg": [0, 2, 4],
-                "gamma_pos": [0, 1],
+                "gamma_neg": [2, 4],
+                "gamma_pos": [1],
             },
-            "sigmoidf1": {
-                "S": [-1, -15, -30],
-                "E": [0, 1, 2],
-            },
+            # "sigmoidf1": {
+            #     "S": [-1, -15, -30],
+            #     "E": [0, 1, 2],
+            # },
         }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
 
 
-class Workflow(luigi.Task):
-    remote_root = luigi.Parameter()
-    local_root = luigi.Parameter()
-    audio_path = luigi.Parameter()
-    metadata_path = luigi.Parameter()
-    intermediate_path = luigi.Parameter()
-    output_path = luigi.Parameter()
+class TrainWorkflow(luigi.Task):
     input_birdnet_path = luigi.Parameter()
-    input_google_path = luigi.Parameter()
+    input_google_path = luigi.OptionalParameter()
     default_model_dir = luigi.Parameter()
 
     def generate_loss_hp_params(self, loss_params):
@@ -272,15 +238,6 @@ class Workflow(luigi.Task):
                 )
 
     def run(self):
-        yield EmbedWorkflow(
-            remote_root=self.remote_root,
-            local_root=self.local_root,
-            audio_path=self.audio_path,
-            metadata_path=self.metadata_path,
-            intermediate_path=self.intermediate_path,
-            output_path=self.output_path,
-        )
-
         hp = HyperparameterGrid()
         _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
@@ -293,71 +250,100 @@ class Workflow(luigi.Task):
         yield tasks
 
         # now test the default two layer model over the different hidden layer sizes
-        tasks = []
-        for model, species_label in [("twolayer", False), ("twolayer", True)]:
-            for hidden_layer_size in hidden_layers:
-                for kwargs in self.generate_hp_parameters(
-                    model,
-                    species_label,
-                    {"bce": {}},
-                    hidden_layer_size=hidden_layer_size,
-                ):
-                    tasks.append(TrainClassifier(**kwargs))
-        yield tasks
-
         # tasks = []
-        # model, hidden_layer_size = "two_layer", 256
-        # for species_label in [False, True]:
-        #     for kwargs in self.generate_hp_parameters(
-        #         model,
-        #         species_label,
-        #         loss_params,
-        #         hidden_layer_size=hidden_layer_size,
-        #     ):
-        #         tasks.append(TrainClassifier(**kwargs))
+        # for model, species_label in [("twolayer", False), ("twolayer", True)]:
+        #     for hidden_layer_size in hidden_layers:
+        #         for kwargs in self.generate_hp_parameters(
+        #             model,
+        #             species_label,
+        #             {"bce": {}},
+        #             hidden_layer_size=hidden_layer_size,
+        #         ):
+        #             tasks.append(TrainClassifier(**kwargs))
         # yield tasks
+
+        tasks = []
+        model, hidden_layer_size = "two_layer", 256
+        for species_label in [False, True]:
+            for kwargs in self.generate_hp_parameters(
+                model,
+                species_label,
+                loss_params,
+                hidden_layer_size=hidden_layer_size,
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+        yield tasks
 
 
 def parse_args():
     parser = ArgumentParser()
 
-    default_out_folder = "birdnet"
-    gcs_root_path = "gs://dsgt-clef-birdclef-2024"
-    train_data_google_path = "data/processed/google_embeddings/v1"
-    train_data_birdnet_path = f"data/processed/{default_out_folder}/v1"
-    model_dir_path = f"models/torch-v1-{default_out_folder}"
     defaults = {
         "remote-root": "gs://dsgt-clef-birdclef-2024/data",
         "local-root": "/mnt/data",
         "audio-path": "raw/birdclef-2024/train_audio",
         "metadata-path": "raw/birdclef-2024/train_metadata.csv",
-        "intermediate-path": f"intermediate/{default_out_folder}/v1",
-        "output-path": f"processed/{default_out_folder}/v1",
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
-        "workers": 1,
-        "input_birdnet_path": f"{gcs_root_path}/{train_data_birdnet_path}",
-        "input_google_path": f"{gcs_root_path}/{train_data_google_path}",
-        "default_model_dir": f"{gcs_root_path}/{model_dir_path}",
+        "workers": os.cpu_count(),
     }
-
     for arg, default in defaults.items():
         parser.add_argument(f"--{arg}", type=type(default), default=default)
+
+    parser.add_argument("--dataset", choices=["train", "soundscape"], default="train")
 
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    luigi.build(
-        [
-            Workflow(
-                **{
-                    k: v
-                    for k, v in vars(args).items()
-                    if k not in ["scheduler_host", "workers"]
-                }
-            )
-        ],
-        scheduler_host=args.scheduler_host,
-        workers=args.workers,
-    )
+    if args.dataset == "train":
+        luigi.build(
+            [
+                BirdNetEmbedSpeciesWorkflow(
+                    remote_root=args.remote_root,
+                    local_root=args.local_root,
+                    audio_path=args.audio_path,
+                    metadata_path=args.metadata_path,
+                    intermediate_path="intermediate/birdnet/v1",
+                    output_path="processed/birdnet/v1",
+                )
+            ],
+            scheduler_host=args.scheduler_host,
+            workers=args.workers,
+        )
+        luigi.build(
+            [
+                TrainWorkflow(
+                    input_birdnet_path=f"{args.remote_root}/processed/birdnet/v1",
+                    input_google_path=f"{args.remote_root}/processed/google_embeddings/v1",
+                    default_model_dir="gs://dsgt-clef-birdclef-2024/models/torch-v1-birdnet",
+                )
+            ],
+            scheduler_host=args.scheduler_host,
+            workers=1,
+        )
+    elif args.dataset == "soundscape":
+        luigi.build(
+            [
+                BirdNetEmbedSoundscapesAudioWorkflow(
+                    remote_root=args.remote_root,
+                    local_root=args.local_root,
+                    audio_path=args.audio_path,
+                    metadata_path=args.metadata_path,
+                    intermediate_path="intermediate/birdnet_soundscape/v1",
+                    output_path="processed/birdnet_soundscape/v1",
+                ),
+            ],
+            scheduler_host=args.scheduler_host,
+            workers=args.workers,
+        )
+        luigi.build(
+            [
+                TrainWorkflow(
+                    input_birdnet_path=f"{args.remote_root}/processed/birdnet_soundscape/v1",
+                    default_model_dir="gs://dsgt-clef-birdclef-2024/models/torch-v1-birdnet-soundscape",
+                )
+            ],
+            scheduler_host=args.scheduler_host,
+            workers=1,
+        )
