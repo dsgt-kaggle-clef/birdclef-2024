@@ -6,7 +6,6 @@ from pathlib import Path
 import lightning as pl
 import luigi
 import luigi.contrib.gcs
-import pandas as pd
 import torch
 import wandb
 from lightning.pytorch.callbacks import LearningRateFinder
@@ -23,7 +22,6 @@ from birdclef.experiment.label.workflow import (
 )
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 from birdclef.inference.birdnet import BirdNetInference
-from birdclef.tasks import RsyncGCSFiles, maybe_gcs_target
 from birdclef.utils import spark_resource
 
 
@@ -67,7 +65,7 @@ class BirdNetEmbedSoundscapesAudioWorkflow(BaseEmbedSoundscapesAudioWorkflow):
 
 class TrainClassifier(luigi.Task):
     input_birdnet_path = luigi.Parameter()
-    input_google_path = luigi.Parameter()
+    input_google_path = luigi.OptionalParameter()
     default_model_dir = luigi.Parameter()
     label_col = luigi.Parameter(default="logits")
     feature_col = luigi.Parameter(default="embedding")
@@ -281,7 +279,6 @@ def parse_args():
     defaults = {
         "remote-root": "gs://dsgt-clef-birdclef-2024/data",
         "local-root": "/mnt/data",
-        "audio-path": "raw/birdclef-2024/train_audio",
         "metadata-path": "raw/birdclef-2024/train_metadata.csv",
         "scheduler-host": "services.us-central1-a.c.dsgt-clef-2024.internal",
         "workers": os.cpu_count(),
@@ -302,7 +299,7 @@ if __name__ == "__main__":
                 BirdNetEmbedSpeciesWorkflow(
                     remote_root=args.remote_root,
                     local_root=args.local_root,
-                    audio_path=args.audio_path,
+                    audio_path="raw/birdclef-2024/train_audio",
                     metadata_path=args.metadata_path,
                     intermediate_path="intermediate/birdnet/v1",
                     output_path="processed/birdnet/v1",
@@ -328,7 +325,7 @@ if __name__ == "__main__":
                 BirdNetEmbedSoundscapesAudioWorkflow(
                     remote_root=args.remote_root,
                     local_root=args.local_root,
-                    audio_path=args.audio_path,
+                    audio_path="raw/birdclef-2024/unlabeled_soundscapes",
                     metadata_path=args.metadata_path,
                     intermediate_path="intermediate/birdnet_soundscape/v1",
                     output_path="processed/birdnet_soundscape/v1",
