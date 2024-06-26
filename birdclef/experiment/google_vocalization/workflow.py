@@ -174,6 +174,8 @@ class Workflow(luigi.Task):
                     param_name = "-".join(param_log)
                 else:
                     param_name = "default"
+                if "hidden_layer_size" in kwargs:
+                    param_name = f"{param_name}-hidden{kwargs['hidden_layer_size']}"
                 default_dir = f"{self.default_root_dir}-{model}-{loss}-{param_name}"
                 if species_label:
                     default_dir = f"{default_dir}-species-label"
