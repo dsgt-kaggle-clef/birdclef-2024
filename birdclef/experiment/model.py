@@ -55,23 +55,23 @@ class LinearClassifier(pl.LightningModule):
         )
         logits = self(x)
         # sigmoid the label and apply a threshold
-        y_sigmoid = torch.sigmoid(y)
-        y_threshold = (y_sigmoid > 0.5).float()
-        label = y_threshold
-
+        y_threshold = torch.sigmoid(logits) > 0.5
         if self.species_label:
             # compute z: row-wise sum of elements in y, cast as boolean
-            z = y_threshold.sum(dim=1, keepdim=True) > 0
-            indicator = z.float()  # convert boolean tensor to float
+            indicator_call = y_threshold.sum(dim=1, keepdim=True) > 0
             # compute s: one-hot encoded species matrix (NxK)
-            species_matrix = torch.zeros_like(logits)
-            spidx = spidx.to(torch.int64)
-            species_matrix = species_matrix.scatter(1, spidx.unsqueeze(1), 1.0)
+            indicator_species = torch.zeros_like(logits, dtype=torch.bool).scatter(
+                1, spidx.to(torch.int).unsqueeze(1), 1
+            )
             # compute r: r = y + (s * z)
             # multiply the indicator by the species matrix and then add it to the original
-            r = y_threshold + (species_matrix * indicator)
             # update logits for the loss computation
-            label = torch.logical_or(label, r).float()
+            label = torch.logical_or(
+                y_threshold, torch.logical_and(indicator_call, indicator_species)
+            )
+        else:
+            label = y_threshold
+        label = label.to(torch.float)
 
         loss = self.loss(logits, label)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
@@ -83,7 +83,7 @@ class LinearClassifier(pl.LightningModule):
         )
         self.log(
             f"{step_name}_auroc",
-            self.auroc_score(logits, label.to(torch.long)),
+            self.auroc_score(logits, label.to(torch.int)),
             on_step=False,
             on_epoch=True,
         )
@@ -120,7 +120,7 @@ class TwoLayerClassifier(LinearClassifier):
             nn.ReLU(inplace=True),
             nn.Linear(hidden_layer_size, num_labels),
         )
-        
+
 
 class LSTMClassifier(LinearClassifier):
     # TODO: in progress
@@ -137,14 +137,14 @@ class LSTMClassifier(LinearClassifier):
 
         self.lstm = nn.LSTM(self.seq_features, lstm_size)
         self.fc = nn.Linear(lstm_size, num_labels)
-        
+
     def forward(self, x):
         x = x.reshape(self.seq_len, -1, self.seq_features)
         x, _ = self.lstm(x)
         x = self.fc(x[-1])
         return x
-    
-    
+
+
 class ConvLSTMClassifier(LinearClassifier):
     # TODO: in progress
     def __init__(
@@ -160,7 +160,7 @@ class ConvLSTMClassifier(LinearClassifier):
         self.conv = nn.Conv1d(num_features, conv_size, conv_kernel)
         self.lstm = nn.LSTM(num_features, lstm_size)
         self.fc = nn.Linear(lstm_size, num_labels)
-        
+
     def forward(self, x):
         x = x.reshape(self.seq_len, -1, self.seq_features)
         x, _ = self.lstm(x)
