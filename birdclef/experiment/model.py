@@ -48,20 +48,15 @@ class LinearClassifier(pl.LightningModule):
         return optimizer
 
     def _run_step(self, batch, batch_idx, step_name):
-        x, y, spidx = (
-            batch["features"],
-            batch["label"].to_dense(),
-            batch["species_index"].to_dense(),
-        )
-        logits = self(x)
+        x, logits = (batch["features"], batch["label"])
         # sigmoid the label and apply a threshold
-        y_threshold = torch.sigmoid(logits) > 0.5
+        y_threshold = torch.sigmoid(logits.to_dense()) > 0.5
         if self.species_label:
             # compute z: row-wise sum of elements in y, cast as boolean
             indicator_call = y_threshold.sum(dim=1, keepdim=True) > 0
             # compute s: one-hot encoded species matrix (NxK)
             indicator_species = torch.zeros_like(logits, dtype=torch.bool).scatter(
-                1, spidx.to(torch.int).unsqueeze(1), 1
+                1, batch["species_index"].to(torch.int).unsqueeze(1), 1
             )
             # compute r: r = y + (s * z)
             # multiply the indicator by the species matrix and then add it to the original
@@ -73,17 +68,18 @@ class LinearClassifier(pl.LightningModule):
             label = y_threshold
         label = label.to(torch.float)
 
-        loss = self.loss(logits, label)
+        logits_pred = self(x)
+        loss = self.loss(logits_pred, label)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
         self.log(
             f"{step_name}_f1",
-            self.f1_score(logits, label),
+            self.f1_score(logits_pred, label),
             on_step=False,
             on_epoch=True,
         )
         self.log(
             f"{step_name}_auroc",
-            self.auroc_score(logits, label.to(torch.int)),
+            self.auroc_score(logits_pred, label.to(torch.int)),
             on_step=False,
             on_epoch=True,
         )

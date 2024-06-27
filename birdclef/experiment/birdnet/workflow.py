@@ -89,16 +89,17 @@ class TrainClassifier(luigi.Task):
         # get model and loss objects
         torch_model = model_params[self.model]
 
-        with spark_resource() as spark:
+        with spark_resource(memory="16g") as spark:
             # data module
             data_module = PetastormDataModule(
-                spark,
-                self.input_birdnet_path,
-                self.input_google_path,
-                self.label_col,
-                self.feature_col,
-                self.batch_size,
-                self.num_partitions,
+                spark=spark,
+                input_birdnet_path=self.input_birdnet_path,
+                input_google_path=self.input_google_path,
+                label_col=self.label_col,
+                feature_col=self.feature_col,
+                species_label=self.species_label,
+                batch_size=self.batch_size,
+                num_partitions=self.num_partitions,
             )
             data_module.setup()
 
@@ -199,8 +200,9 @@ class HyperparameterGrid:
 
 class TrainWorkflow(luigi.Task):
     input_birdnet_path = luigi.Parameter()
-    input_google_path = luigi.OptionalParameter()
+    input_google_path = luigi.OptionalParameter(default=None)
     default_model_dir = luigi.Parameter()
+    enable_species_label = luigi.BoolParameter(default=True)
 
     def generate_loss_hp_params(self, loss_params):
         """Generate all combinations of hyperparameters for a given loss function."""
@@ -240,7 +242,9 @@ class TrainWorkflow(luigi.Task):
         _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
         tasks = []
-        for model, species_label in [("linear", False)]:
+        for model, species_label in [("linear", False), ("linear", True)]:
+            if not self.enable_species_label and species_label:
+                continue
             for kwargs in self.generate_hp_parameters(
                 model, species_label, loss_params
             ):
@@ -263,6 +267,8 @@ class TrainWorkflow(luigi.Task):
         tasks = []
         model, hidden_layer_size = "two_layer", 256
         for species_label in [False, True]:
+            if not self.enable_species_label and species_label:
+                continue
             for kwargs in self.generate_hp_parameters(
                 model,
                 species_label,
@@ -338,7 +344,9 @@ if __name__ == "__main__":
             [
                 TrainWorkflow(
                     input_birdnet_path=f"{args.remote_root}/processed/birdnet_soundscape/v1",
-                    default_model_dir="gs://dsgt-clef-birdclef-2024/models/torch-v1-birdnet-soundscape",
+                    input_google_path=f"{args.remote_root}/processed/google_soundscape_embeddings/v1",
+                    default_model_dir="gs://dsgt-clef-birdclef-2024/models/torch-v2-birdnet-soundscape",
+                    enable_species_label=False,
                 )
             ],
             scheduler_host=args.scheduler_host,

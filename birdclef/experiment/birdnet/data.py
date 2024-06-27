@@ -117,6 +117,7 @@ class PetastormDataModule(pl.LightningDataModule):
         input_birdnet_path,
         label_col,
         feature_col,
+        species_label=True,
         # optional: will be used to join if it exists
         input_google_path=None,
         batch_size=64,
@@ -133,22 +134,18 @@ class PetastormDataModule(pl.LightningDataModule):
         self.input_google_path = input_google_path
         self.label_col = label_col
         self.feature_col = feature_col
+        self.species_label = species_label
         self.batch_size = batch_size
         self.num_partitions = num_partitions
         self.workers_count = workers_count
 
     def _prepare_dataframe(self, df):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
-        return (
-            df.withColumnRenamed(self.feature_col, "features")
-            .withColumnRenamed(self.label_col, "label")
-            .select(
-                F.col("features").cast("array<float>").alias("features"),
-                F.col("label").cast("array<float>").alias("label"),
-                F.col("species_index"),
-            )
-            .repartition(self.num_partitions)
-        )
+        return df.select(
+            F.col(self.feature_col).cast("array<float>").alias("features"),
+            F.col(self.label_col).cast("array<float>").alias("label"),
+            *([F.col("species_index")] if self.species_label else []),
+        ).repartition(self.num_partitions)
 
     def _train_valid_split(self, df):
         """
@@ -173,17 +170,18 @@ class PetastormDataModule(pl.LightningDataModule):
                 return species_idx
 
             # read data
-            df = self.spark.read.parquet(self.input_birdnet_path).cache()
-            if self.input_google_path is not None:
-                google_df = self.spark.read.parquet(self.input_google_path).cache()
-                df = df.join(
-                    google_df.select("name", "chunk_5s", self.label_col),
-                    on=["name", "chunk_5s"],
-                    how="inner",
-                ).withColumn("species_index", species_index_udf("name"))
+            birdnet_df = self.spark.read.parquet(self.input_birdnet_path).cache()
+            google_df = self.spark.read.parquet(self.input_google_path).cache()
+            df = birdnet_df.join(
+                google_df.select("name", "chunk_5s", self.label_col),
+                on=["name", "chunk_5s"],
+                how="inner",
+            )
+            if self.species_label:
+                df = df.withColumn("species_index", species_index_udf("name"))
 
             # train/valid Split
-            self.train_data, self.valid_data = self._train_valid_split(df=df_species)
+            self.train_data, self.valid_data = self._train_valid_split(df=df)
             print(
                 f"\ntrain count: {self.train_data.count()}\n"
                 f"valid count: {self.valid_data.count()}\n",
