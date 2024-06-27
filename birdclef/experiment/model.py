@@ -5,15 +5,11 @@ from torchmetrics.classification import MultilabelAUROC, MultilabelF1Score
 
 from birdclef.torch.losses import AsymmetricLossOptimized, ROCStarLoss, SigmoidF1
 
-
-class LossFunctions:
-    def get_hyperparameter_config(self):
-        loss_params = {
-            "bce": nn.BCEWithLogitsLoss,
-            "asl": AsymmetricLossOptimized,
-            "sigmoidf1": SigmoidF1,
-        }
-        return loss_params
+LOSS_PARAMS = {
+    "bce": nn.BCEWithLogitsLoss,
+    "asl": AsymmetricLossOptimized,
+    "sigmoidf1": SigmoidF1,
+}
 
 
 class LinearClassifier(pl.LightningModule):
@@ -33,9 +29,7 @@ class LinearClassifier(pl.LightningModule):
         self.species_label = species_label
         self.learning_rate = 0.002
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
-        loss_fn = LossFunctions()
-        loss_params = loss_fn.get_hyperparameter_config()
-        self.loss = loss_params[loss](**hp_kwargs)
+        self.loss = LOSS_PARAMS[loss](**hp_kwargs)
         self.model = nn.Linear(num_features, num_labels)
         self.f1_score = MultilabelF1Score(num_labels=num_labels, average="macro")
         self.auroc_score = MultilabelAUROC(num_labels=num_labels, average="weighted")
@@ -48,14 +42,14 @@ class LinearClassifier(pl.LightningModule):
         return optimizer
 
     def _run_step(self, batch, batch_idx, step_name):
-        x, logits = (batch["features"], batch["label"])
         # sigmoid the label and apply a threshold
-        y_threshold = torch.sigmoid(logits.to_dense()) > 0.5
+        logit = batch["label"]
+        y_threshold = torch.sigmoid(logit) > 0.5
         if self.species_label:
             # compute z: row-wise sum of elements in y, cast as boolean
             indicator_call = y_threshold.sum(dim=1, keepdim=True) > 0
             # compute s: one-hot encoded species matrix (NxK)
-            indicator_species = torch.zeros_like(logits, dtype=torch.bool).scatter(
+            indicator_species = torch.zeros_like(y_threshold, dtype=torch.bool).scatter(
                 1, batch["species_index"].to(torch.int).unsqueeze(1), 1
             )
             # compute r: r = y + (s * z)
@@ -68,7 +62,7 @@ class LinearClassifier(pl.LightningModule):
             label = y_threshold
         label = label.to(torch.float)
 
-        logits_pred = self(x)
+        logits_pred = self(batch["features"])
         loss = self.loss(logits_pred, label)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
         self.log(
@@ -83,6 +77,7 @@ class LinearClassifier(pl.LightningModule):
             on_step=False,
             on_epoch=True,
         )
+        logit.detach()
         return loss
 
     def training_step(self, batch, batch_idx):

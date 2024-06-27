@@ -308,7 +308,7 @@ if __name__ == "__main__":
         else [
             SoundscapeWorkflow(
                 input_path=f"{args.root}/data/processed/google_soundscape_embeddings/v1",
-                default_root_dir=f"{args.root}/models/torch-v1-google-soundscape",
+                default_root_dir=f"{args.root}/models/torch-v2-google-soundscape",
                 enable_species_label=False,
             ),
         ],

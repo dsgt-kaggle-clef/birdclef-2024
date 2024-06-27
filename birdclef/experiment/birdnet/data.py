@@ -7,7 +7,6 @@ import lightning as pl
 import torch
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
-from pyspark.sql.types import IntegerType
 from torch.utils.data import DataLoader, IterableDataset
 from torchvision.transforms import v2
 
@@ -192,7 +191,7 @@ class PetastormDataModule(pl.LightningDataModule):
             self.converter_valid = make_spark_converter(self.valid_data)
 
     def _dataloader(self, converter):
-        transform = v2.Compose([ToSparseTensor()])
+        # transform = v2.Compose([ToSparseTensor()])
         with warnings.catch_warnings():
             warnings.simplefilter(action="ignore", category=FutureWarning)
             with converter.make_torch_dataloader(
@@ -201,7 +200,8 @@ class PetastormDataModule(pl.LightningDataModule):
                 workers_count=self.workers_count,
             ) as dataloader:
                 for batch in dataloader:
-                    yield transform(batch)
+                    yield batch
+        torch.cuda.empty_cache()
 
     def train_dataloader(self):
         for batch in self._dataloader(self.converter_train):

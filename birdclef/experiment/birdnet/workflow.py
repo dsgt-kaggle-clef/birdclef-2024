@@ -142,12 +142,6 @@ class TrainClassifier(luigi.Task):
             # add your batch size to the wandb config
             wandb_logger.experiment.config["batch_size"] = self.batch_size
 
-            model_checkpoint = ModelCheckpoint(
-                dirpath=os.path.join(self.default_model_dir, "checkpoints"),
-                monitor="val_loss",
-                save_last=True,
-            )
-
             # trainer
             print(f"\ndevice: {'gpu' if torch.cuda.is_available() else 'cpu'}\n")
             trainer = pl.Trainer(
@@ -158,7 +152,11 @@ class TrainClassifier(luigi.Task):
                 logger=wandb_logger,
                 callbacks=[
                     EarlyStopping(monitor="val_auroc", mode="max"),
-                    model_checkpoint,
+                    ModelCheckpoint(
+                        dirpath=os.path.join(self.default_model_dir, "checkpoints"),
+                        monitor="val_loss",
+                        save_last=True,
+                    ),
                     LearningRateFinder(),
                 ],
             )
