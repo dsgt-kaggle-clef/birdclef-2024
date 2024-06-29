@@ -70,7 +70,7 @@ class TrainClassifier(luigi.Task):
     label_col = luigi.Parameter(default="logits")
     feature_col = luigi.Parameter(default="embedding")
     loss = luigi.Parameter()
-    model = luigi.Parameter()
+    model = luigi.ChoiceParameter(choices=["linear", "two_layer"])
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
     hyper_params = luigi.OptionalDictParameter(default={})
     species_label = luigi.OptionalBoolParameter(default=False)
@@ -120,6 +120,7 @@ class TrainClassifier(luigi.Task):
                     hidden_layer_size=self.hidden_layer_size,
                     hp_kwargs=self.hyper_params,
                     species_label=self.species_label,
+                    should_threshold=False,
                 )
             else:
                 model = torch_model(
@@ -128,6 +129,7 @@ class TrainClassifier(luigi.Task):
                     loss=self.loss,
                     species_label=self.species_label,
                     hp_kwargs=self.hyper_params,
+                    should_threshold=False,
                 )
 
             # initialise the wandb logger and name your wandb project
@@ -160,7 +162,11 @@ class TrainClassifier(luigi.Task):
                     LearningRateFinder(),
                 ],
             )
-            trainer.fit(model, data_module)
+            try:
+                trainer.fit(model, data_module)
+            except torch.cuda.OutOfMemoryError as e:
+                print(e)
+                # continue
 
             # finish W&B
             wandb.finish()
@@ -175,7 +181,7 @@ class HyperparameterGrid:
         # Model and Loss mappings
         model_params = {
             "linear": LinearClassifier,
-            "twolayer": TwoLayerClassifier,
+            "two_layer": TwoLayerClassifier,
         }
         loss_params = {
             "bce": {},
@@ -251,7 +257,7 @@ class TrainWorkflow(luigi.Task):
 
         # now test the default two layer model over the different hidden layer sizes
         # tasks = []
-        # for model, species_label in [("twolayer", False), ("twolayer", True)]:
+        # for model, species_label in [("two_layer", False), ("two_layer", True)]:
         #     for hidden_layer_size in hidden_layers:
         #         for kwargs in self.generate_hp_parameters(
         #             model,

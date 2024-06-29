@@ -4,6 +4,7 @@ import warnings
 from pathlib import Path
 
 import lightning as pl
+import numpy as np
 import torch
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
@@ -140,9 +141,15 @@ class PetastormDataModule(pl.LightningDataModule):
 
     def _prepare_dataframe(self, df):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
+
+        @F.udf("array<boolean>")
+        def sigmoid_udf(x):
+            z = 1 / (1 + np.exp(-np.array(x)))
+            return (z > 0.5).tolist()
+
         return df.select(
             F.col(self.feature_col).cast("array<float>").alias("features"),
-            F.col(self.label_col).cast("array<float>").alias("label"),
+            sigmoid_udf(self.label_col).cast("array<short>").alias("label"),
             *([F.col("species_index")] if self.species_label else []),
         ).repartition(self.num_partitions)
 

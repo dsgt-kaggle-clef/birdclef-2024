@@ -1,3 +1,5 @@
+import warnings
+
 import lightning as pl
 import torch
 from torch import nn
@@ -20,6 +22,7 @@ class LinearClassifier(pl.LightningModule):
         loss: str = "bce",
         hp_kwargs: dict = {},
         species_label: bool = False,
+        should_threshold: bool = True,
         **kwargs,
     ):
         super().__init__()
@@ -28,6 +31,8 @@ class LinearClassifier(pl.LightningModule):
         self.hp_kwargs = hp_kwargs
         self.species_label = species_label
         self.learning_rate = 0.002
+        self.should_threshold = should_threshold
+
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
         self.loss = LOSS_PARAMS[loss](**hp_kwargs)
         self.model = nn.Linear(num_features, num_labels)
@@ -44,7 +49,10 @@ class LinearClassifier(pl.LightningModule):
     def _run_step(self, batch, batch_idx, step_name):
         # sigmoid the label and apply a threshold
         logit = batch["label"]
-        y_threshold = torch.sigmoid(logit) > 0.5
+        y_threshold = (
+            (torch.sigmoid(logit.to_dense()) > 0.5) if self.should_threshold else logit
+        )
+
         if self.species_label:
             # compute z: row-wise sum of elements in y, cast as boolean
             indicator_call = y_threshold.sum(dim=1, keepdim=True) > 0
@@ -55,29 +63,24 @@ class LinearClassifier(pl.LightningModule):
             # compute r: r = y + (s * z)
             # multiply the indicator by the species matrix and then add it to the original
             # update logits for the loss computation
-            label = torch.logical_or(
-                y_threshold, torch.logical_and(indicator_call, indicator_species)
+            y_threshold = torch.logical_or(
+                y_threshold,
+                torch.logical_and(indicator_call, indicator_species),
             )
-        else:
-            label = y_threshold
-        label = label.to(torch.float)
 
+        label = y_threshold.to(torch.float)
         logits_pred = self(batch["features"])
-        loss = self.loss(logits_pred, label)
-        self.log(f"{step_name}_loss", loss, prog_bar=True)
-        self.log(
-            f"{step_name}_f1",
-            self.f1_score(logits_pred, label),
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"{step_name}_auroc",
-            self.auroc_score(logits_pred, label.to(torch.int)),
-            on_step=False,
-            on_epoch=True,
-        )
-        logit.detach()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter(action="ignore", category=UserWarning)
+
+            loss = self.loss(logits_pred, label)
+            f1_score = self.f1_score(logits_pred, label)
+            auroc_score = self.auroc_score(logits_pred, label.to(torch.int))
+
+            self.log(f"{step_name}_loss", loss, prog_bar=True)
+            self.log(f"{step_name}_f1", f1_score, on_step=False, on_epoch=True)
+            self.log(f"{step_name}_auroc", auroc_score, on_step=False, on_epoch=True)
         return loss
 
     def training_step(self, batch, batch_idx):

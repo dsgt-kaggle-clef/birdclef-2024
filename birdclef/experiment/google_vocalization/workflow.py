@@ -114,7 +114,11 @@ class TrainClassifier(luigi.Task):
                     LearningRateFinder(),
                 ],
             )
-            trainer.fit(model, data_module)
+            try:
+                trainer.fit(model, data_module)
+            except torch.cuda.OutOfMemoryError as e:
+                print(e)
+                # continue
 
             # finish W&B
             wandb.finish()
@@ -206,7 +210,7 @@ class Workflow(luigi.Task):
 
         # now test the default two layer model over the different hidden layer sizes
         # tasks = []
-        for model, species_label in [("twolayer", False), ("twolayer", True)]:
+        for model, species_label in [("two_layer", False), ("two_layer", True)]:
             if not self.enable_species_label and species_label:
                 continue
             for hidden_layer_size in hidden_layers:
