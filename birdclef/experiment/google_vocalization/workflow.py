@@ -28,7 +28,7 @@ class TrainClassifier(luigi.Task):
     hidden_layer_size = luigi.OptionalIntParameter(default=64)
     hyper_params = luigi.OptionalDictParameter(default={})
     species_label = luigi.OptionalBoolParameter(default=False)
-    batch_size = luigi.IntParameter(default=1000)
+    batch_size = luigi.IntParameter(default=750)
     num_partitions = luigi.IntParameter(default=os.cpu_count())
     two_layer = luigi.OptionalBoolParameter(default=False)
 
@@ -43,7 +43,7 @@ class TrainClassifier(luigi.Task):
         # get model and loss objects
         torch_model = model_params[self.model]
 
-        with spark_resource() as spark:
+        with spark_resource(memory="16g") as spark:
             # data module
             data_module = PetastormDataModule(
                 spark,
@@ -114,7 +114,11 @@ class TrainClassifier(luigi.Task):
                     LearningRateFinder(),
                 ],
             )
-            trainer.fit(model, data_module)
+            try:
+                trainer.fit(model, data_module)
+            except torch.cuda.OutOfMemoryError as e:
+                print(e)
+                # continue
 
             # finish W&B
             wandb.finish()
@@ -174,6 +178,8 @@ class Workflow(luigi.Task):
                     param_name = "-".join(param_log)
                 else:
                     param_name = "default"
+                if "hidden_layer_size" in kwargs:
+                    param_name = f"{param_name}-hidden{kwargs['hidden_layer_size']}"
                 default_dir = f"{self.default_root_dir}-{model}-{loss}-{param_name}"
                 if species_label:
                     default_dir = f"{default_dir}-species-label"
@@ -192,6 +198,7 @@ class Workflow(luigi.Task):
         _, loss_params, hidden_layers = hp.get_hyperparameter_config()
 
         tasks = []
+
         for model, species_label in [("linear", False), ("linear", True)]:
             if not self.enable_species_label and species_label:
                 continue
@@ -203,7 +210,7 @@ class Workflow(luigi.Task):
 
         # now test the default two layer model over the different hidden layer sizes
         # tasks = []
-        for model, species_label in [("twolayer", False), ("twolayer", True)]:
+        for model, species_label in [("two_layer", False), ("two_layer", True)]:
             if not self.enable_species_label and species_label:
                 continue
             for hidden_layer_size in hidden_layers:
@@ -217,6 +224,43 @@ class Workflow(luigi.Task):
         # yield tasks
 
         # tasks = []
+        model, hidden_layer_size = "two_layer", 256
+        for species_label in [False, True]:
+            if not self.enable_species_label and species_label:
+                continue
+            for kwargs in self.generate_hp_parameters(
+                model,
+                species_label,
+                loss_params,
+                hidden_layer_size=hidden_layer_size,
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+        yield tasks
+
+
+class SoundscapeWorkflow(Workflow):
+    def run(self):
+        loss_params = {
+            "bce": {},
+            "asl": {
+                "gamma_neg": [2],
+                "gamma_pos": [1],
+            },
+            "sigmoidf1": {
+                "S": [-30],
+                "E": [0],
+            },
+        }
+
+        tasks = []
+        for model, species_label in [("linear", False)]:
+            if not self.enable_species_label and species_label:
+                continue
+            for kwargs in self.generate_hp_parameters(
+                model, species_label, loss_params
+            ):
+                tasks.append(TrainClassifier(**kwargs))
+
         model, hidden_layer_size = "two_layer", 256
         for species_label in [False, True]:
             if not self.enable_species_label and species_label:
@@ -245,6 +289,11 @@ def parse_args():
         default="services.us-central1-a.c.dsgt-clef-2024.internal",
         help="scheduler host for Luigi",
     )
+    parser.add_argument(
+        "--dataset",
+        choices=["train", "soundscape"],
+        default="train",
+    )
     return parser.parse_args()
 
 
@@ -257,10 +306,13 @@ if __name__ == "__main__":
                 input_path=f"{args.root}/data/processed/google_embeddings/v1",
                 default_root_dir=f"{args.root}/models/torch-v1-google",
                 enable_species_label=True,
-            ),
-            Workflow(
+            )
+        ]
+        if args.dataset == "train"
+        else [
+            SoundscapeWorkflow(
                 input_path=f"{args.root}/data/processed/google_soundscape_embeddings/v1",
-                default_root_dir=f"{args.root}/models/torch-v1-google-soundscape",
+                default_root_dir=f"{args.root}/models/torch-v2-google-soundscape",
                 enable_species_label=False,
             ),
         ],

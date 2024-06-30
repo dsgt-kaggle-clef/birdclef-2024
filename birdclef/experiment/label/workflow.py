@@ -74,7 +74,7 @@ class EncodecEmbedSpeciesAudio(BaseEmbedSpeciesAudio):
         )
 
 
-class BaseSpeciesWorkflow(luigi.Task):
+class BaseEmbedSpeciesWorkflow(luigi.Task):
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
 
@@ -111,7 +111,7 @@ class BaseSpeciesWorkflow(luigi.Task):
             )
 
 
-class VocalizationWorkflow(BaseSpeciesWorkflow):
+class VocalizationWorkflow(BaseEmbedSpeciesWorkflow):
     def get_task(self, species):
         return VocalizationEmbedSpeciesAudio(
             remote_root=self.remote_root,
@@ -124,7 +124,7 @@ class VocalizationWorkflow(BaseSpeciesWorkflow):
         )
 
 
-class EncodecWorkflow(BaseSpeciesWorkflow):
+class EncodecWorkflow(BaseEmbedSpeciesWorkflow):
     chunk_size = luigi.IntParameter(default=5)
     bandwidth = luigi.FloatParameter(default=1.5)
 
@@ -141,7 +141,7 @@ class EncodecWorkflow(BaseSpeciesWorkflow):
         )
 
 
-class EmbedSoundscapesAudio(luigi.Task):
+class BaseEmbedSoundscapesAudio(luigi.Task):
     """Embed soundscapes embeddings"""
 
     remote_root = luigi.Parameter()
@@ -187,6 +187,11 @@ class EmbedSoundscapesAudio(luigi.Task):
             f.write("")
 
     def get_inference(self):
+        raise NotImplementedError()
+
+
+class VocalizationEmbedSoundscapesAudio(BaseEmbedSoundscapesAudio):
+    def get_inference(self):
         metadata_path = f"{self.remote_root}/{self.metadata_path}"
         return GoogleVocalizationInference(
             metadata_path=metadata_path,
@@ -194,7 +199,7 @@ class EmbedSoundscapesAudio(luigi.Task):
         )
 
 
-class EmbedSoundscapesAudioWorkflow(luigi.Task):
+class BaseEmbedSoundscapesAudioWorkflow(luigi.Task):
     remote_root = luigi.Parameter()
     local_root = luigi.Parameter()
 
@@ -206,22 +211,14 @@ class EmbedSoundscapesAudioWorkflow(luigi.Task):
     total_batches = luigi.IntParameter(default=100)
     num_partitions = luigi.IntParameter(default=16)
 
+    def get_task(self, batch_number):
+        raise NotImplementedError()
+
     def output(self):
         return maybe_gcs_target(f"{self.remote_root}/{self.output_path}/_SUCCESS")
 
     def run(self):
-        yield [
-            EmbedSoundscapesAudio(
-                remote_root=self.remote_root,
-                local_root=self.local_root,
-                audio_path=self.audio_path,
-                metadata_path=self.metadata_path,
-                output_path=self.intermediate_path,
-                total_batches=self.total_batches,
-                batch_number=i,
-            )
-            for i in range(self.total_batches)
-        ]
+        yield [self.get_task(i) for i in range(self.total_batches)]
 
         with spark_resource(memory="16g") as spark:
             spark.read.parquet(
@@ -229,6 +226,19 @@ class EmbedSoundscapesAudioWorkflow(luigi.Task):
             ).repartition(self.num_partitions).write.parquet(
                 f"{self.remote_root}/{self.output_path}", mode="overwrite"
             )
+
+
+class VocalizationEmbedSoundscapesAudioWorkflow(BaseEmbedSoundscapesAudioWorkflow):
+    def get_task(self, batch_number):
+        return VocalizationEmbedSoundscapesAudio(
+            remote_root=self.remote_root,
+            local_root=self.local_root,
+            audio_path=self.audio_path,
+            metadata_path=self.metadata_path,
+            output_path=self.intermediate_path,
+            total_batches=self.total_batches,
+            batch_number=batch_number,
+        )
 
 
 class Workflow(luigi.Task):
@@ -253,7 +263,7 @@ class Workflow(luigi.Task):
                 intermediate_path=f"intermediate/google_embeddings/v1",
                 output_path=f"processed/google_embeddings/v1",
             ),
-            EmbedSoundscapesAudioWorkflow(
+            VocalizationEmbedSoundscapesAudioWorkflow(
                 **common_args,
                 audio_path=self.unlabeled_soundscapes_path,
                 intermediate_path=f"intermediate/google_soundscape_embeddings/v1",
