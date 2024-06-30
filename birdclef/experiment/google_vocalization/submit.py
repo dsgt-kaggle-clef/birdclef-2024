@@ -22,6 +22,7 @@ def make_submission(
     use_compiled: bool = True,
     limit=None,
     should_profile=False,
+    profile_path="perf_logs",
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
     dm = GoogleVocalizationSoundscapeDataModule(
@@ -35,7 +36,8 @@ def make_submission(
     )
     kwargs = dict()
     if should_profile:
-        profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+        Path(profile_path).mkdir(exist_ok=True, parents=True)
+        profiler = AdvancedProfiler(dirpath="logs", filename=profile_path)
         kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
 
@@ -82,15 +84,16 @@ if __name__ == "__main__":
 
     # 10 samples in 570 seconds
     # 20 soundscapes compiled in 2:48
-    model_name = "torch-v1-google-twolayer-asl-gamma_neg4-gamma_pos1-hidden256"
-    model_type = "two_layer"
+    model_name = "torch-v1-google-linear-asl-gamma_neg4-gamma_pos1"
+    model_type = "linear"
     make_submission(
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
         f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
         model_type,
-        num_workers=2,
+        num_workers=4,
         limit=20,
-        should_profile=False,
+        should_profile=True,
+        profile_path="vocalization_linear_compiled",
     )

@@ -3,6 +3,7 @@ from pathlib import Path
 import lightning as pl
 import pandas as pd
 import torch
+from lightning.pytorch.profilers import AdvancedProfiler
 from tqdm import tqdm
 
 from birdclef.config import SPECIES
@@ -26,6 +27,8 @@ def make_submission(
     batch_size: int = 32,
     num_workers: int = 0,
     limit=None,
+    should_profile=False,
+    profile_path="perf_logs",
     **kwargs,
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
@@ -36,6 +39,10 @@ def make_submission(
         limit=limit,
     )
     kwargs = dict()
+    if should_profile:
+        Path(profile_path).mkdir(exist_ok=True, parents=True)
+        profiler = AdvancedProfiler(dirpath="logs", filename=profile_path)
+        kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
     predictions = trainer.predict(PassthroughModel(), dm)
 
@@ -71,7 +78,8 @@ if __name__ == "__main__":
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
-        num_workers=2,
-        limit=100,
-        should_profile=False,
+        num_workers=4,
+        limit=20,
+        should_profile=True,
+        profile_path="torchaudio",
     )

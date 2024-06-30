@@ -30,6 +30,7 @@ def make_submission(
     use_compiled: bool = True,
     limit=None,
     should_profile=False,
+    profile_path="logs/perf_logs",
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
     dm = GoogleVocalizationSoundscapeDataModule(
@@ -43,7 +44,8 @@ def make_submission(
     )
     kwargs = dict()
     if should_profile:
-        profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+        Path("logs").mkdir(exist_ok=True, parents=True)
+        profiler = AdvancedProfiler(dirpath="logs", filename=profile_path)
         kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
     predictions = trainer.predict(PassthroughModel(), dm)
@@ -77,11 +79,22 @@ if __name__ == "__main__":
     )
 
     # 10 samples in 570 seconds
-    make_submission(
-        "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
-        "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
-        "/mnt/data/tmp/submission.csv",
-        num_workers=2,
-        limit=20,
-        should_profile=False,
-    )
+    for config in [
+        dict(
+            use_compiled=False,
+            profile_path="vocalization_passthrough_noncompiled",
+        ),
+        dict(
+            use_compiled=True,
+            profile_path="vocalization_passthrough_compiled",
+        ),
+    ]:
+        make_submission(
+            "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
+            "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
+            "/mnt/data/tmp/submission.csv",
+            num_workers=4,
+            limit=10,
+            should_profile=True,
+            **config,
+        )
