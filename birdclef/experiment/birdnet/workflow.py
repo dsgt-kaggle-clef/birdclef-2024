@@ -197,6 +197,10 @@ class HyperparameterGrid:
             #     "S": [-1, -15, -30],
             #     "E": [0, 1, 2],
             # },
+            "sigmoidf1": {
+                "S": [-30],
+                "E": [0],
+            },
         }
         hidden_layers = [64, 128, 256]
         return model_params, loss_params, hidden_layers
@@ -256,17 +260,19 @@ class TrainWorkflow(luigi.Task):
         yield tasks
 
         # now test the default two layer model over the different hidden layer sizes
-        # tasks = []
-        # for model, species_label in [("two_layer", False), ("two_layer", True)]:
-        #     for hidden_layer_size in hidden_layers:
-        #         for kwargs in self.generate_hp_parameters(
-        #             model,
-        #             species_label,
-        #             {"bce": {}},
-        #             hidden_layer_size=hidden_layer_size,
-        #         ):
-        #             tasks.append(TrainClassifier(**kwargs))
-        # yield tasks
+        tasks = []
+        for model, species_label in [("two_layer", False), ("two_layer", True)]:
+            if not self.enable_species_label and species_label:
+                continue
+            for hidden_layer_size in hidden_layers:
+                for kwargs in self.generate_hp_parameters(
+                    model,
+                    species_label,
+                    {"bce": {}},
+                    hidden_layer_size=hidden_layer_size,
+                ):
+                    tasks.append(TrainClassifier(**kwargs))
+        yield tasks
 
         tasks = []
         model, hidden_layer_size = "two_layer", 256

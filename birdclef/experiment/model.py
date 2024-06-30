@@ -58,7 +58,7 @@ class LinearClassifier(pl.LightningModule):
             indicator_call = y_threshold.sum(dim=1, keepdim=True) > 0
             # compute s: one-hot encoded species matrix (NxK)
             indicator_species = torch.zeros_like(y_threshold, dtype=torch.bool).scatter(
-                1, batch["species_index"].to(torch.int).unsqueeze(1), 1
+                1, batch["species_index"].to(torch.int64).unsqueeze(1), 1
             )
             # compute r: r = y + (s * z)
             # multiply the indicator by the species matrix and then add it to the original
