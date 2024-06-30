@@ -78,8 +78,8 @@ if __name__ == "__main__":
         "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
         "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
         "/mnt/data/tmp/submission.csv",
-        num_workers=4,
-        limit=20,
+        num_workers=0,
+        limit=5,
         should_profile=True,
         profile_path="torchaudio",
     )

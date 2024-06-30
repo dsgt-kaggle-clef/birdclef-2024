@@ -114,8 +114,8 @@ if __name__ == "__main__":
             "/mnt/data/tmp/submission.csv",
             f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
             model_type,
-            num_workers=4,
-            limit=20,
+            num_workers=0,
+            limit=5,
             should_profile=True,
             **config,
         )
