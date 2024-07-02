@@ -2,6 +2,7 @@ from pathlib import Path
 
 import lightning as pl
 import pandas as pd
+import torch
 from lightning.pytorch.profilers import AdvancedProfiler
 from tqdm import tqdm
 
@@ -9,6 +10,15 @@ from birdclef.config import SPECIES
 from birdclef.experiment.model import LinearClassifier, TwoLayerClassifier
 
 from .data import EncodecSoundscapeDataModule
+
+
+class PassthroughModel(pl.LightningModule):
+    def forward(self, x):
+        return x
+
+    def predict_step(self, batch, batch_idx):
+        batch["prediction"] = torch.ones((len(batch["row_id"]), len(SPECIES))) * 0.5
+        return batch
 
 
 def make_submission(
@@ -22,6 +32,7 @@ def make_submission(
     use_compiled: bool = True,
     limit=None,
     should_profile=False,
+    profile_path="perf_logs",
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
     dm = EncodecSoundscapeDataModule(
@@ -34,18 +45,21 @@ def make_submission(
     )
     kwargs = dict()
     if should_profile:
-        profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+        profiler = AdvancedProfiler(dirpath="logs", filename=profile_path)
         kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
 
-    if model_type == "linear":
-        model_class = LinearClassifier
-    elif model_type == "two_layer":
-        model_class = TwoLayerClassifier
+    if model_type == "passthrough":
+        model = PassthroughModel()
     else:
-        raise ValueError(f"invalid class: {model_type}")
+        if model_type == "linear":
+            model_class = LinearClassifier
+        elif model_type == "two_layer":
+            model_class = TwoLayerClassifier
+        else:
+            raise ValueError(f"invalid class: {model_type}")
+        model = model_class.load_from_checkpoint(model_path)
 
-    model = model_class.load_from_checkpoint(model_path)
     predictions = trainer.predict(model, dm)
 
     rows = []
@@ -81,16 +95,27 @@ if __name__ == "__main__":
 
     # 20 samples in 7:26 with vanilla
     # 20 samples in 6:54 with openvino
-    model_name = "torch-v1-encodec-linear-asl"
-    model_type = "linear"
-    make_submission(
-        "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
-        "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
-        "/mnt/data/tmp/submission.csv",
-        f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
-        model_type,
-        num_workers=0,
-        limit=20,
-        use_compiled=True,
-        should_profile=True,
-    )
+    # model_name = "torch-v1-encodec-linear-asl"
+    model_name = ""
+    model_type = "passthrough"
+    for config in [
+        dict(
+            use_compiled=False,
+            profile_path="encodec_passthrough_noncompiled",
+        ),
+        dict(
+            use_compiled=True,
+            profile_path="encodec_passthrough_compiled",
+        ),
+    ]:
+        make_submission(
+            "/mnt/data/raw/birdclef-2024/unlabeled_soundscapes",
+            "gs://dsgt-clef-birdclef-2024/data/raw/birdclef-2024/train_metadata.csv",
+            "/mnt/data/tmp/submission.csv",
+            f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
+            model_type,
+            num_workers=0,
+            limit=5,
+            should_profile=True,
+            **config,
+        )

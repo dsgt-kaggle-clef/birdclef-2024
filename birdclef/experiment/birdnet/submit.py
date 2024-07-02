@@ -31,6 +31,7 @@ def make_submission(
     num_workers: int = 0,
     limit=None,
     should_profile=False,
+    profile_path="logs/perf_logs",
 ):
     Path(output_csv_path).parent.mkdir(exist_ok=True, parents=True)
     dm = BirdNetSoundscapeDataModule(
@@ -42,7 +43,7 @@ def make_submission(
     )
     kwargs = dict()
     if should_profile:
-        profiler = AdvancedProfiler(dirpath=".", filename="perf_logs")
+        profiler = AdvancedProfiler(dirpath="logs", filename=profile_path)
         kwargs["profiler"] = profiler
     trainer = pl.Trainer(**kwargs)
 
@@ -100,6 +101,7 @@ if __name__ == "__main__":
         f"/mnt/data/models/{model_name}/checkpoints/last.ckpt",
         model_type,
         num_workers=0,
-        limit=20,
+        limit=5,
         should_profile=True,
+        profile_path="birdnet_passthrough_compiled",
     )

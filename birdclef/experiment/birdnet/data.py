@@ -4,10 +4,10 @@ import warnings
 from pathlib import Path
 
 import lightning as pl
+import numpy as np
 import torch
 from petastorm.spark import SparkDatasetConverter, make_spark_converter
 from pyspark.sql import functions as F
-from pyspark.sql.types import IntegerType
 from torch.utils.data import DataLoader, IterableDataset
 from torchvision.transforms import v2
 
@@ -115,9 +115,11 @@ class PetastormDataModule(pl.LightningDataModule):
         self,
         spark,
         input_birdnet_path,
-        input_google_path,
         label_col,
         feature_col,
+        species_label=True,
+        # optional: will be used to join if it exists
+        input_google_path=None,
         batch_size=64,
         num_partitions=os.cpu_count(),
         workers_count=os.cpu_count(),
@@ -132,22 +134,24 @@ class PetastormDataModule(pl.LightningDataModule):
         self.input_google_path = input_google_path
         self.label_col = label_col
         self.feature_col = feature_col
+        self.species_label = species_label
         self.batch_size = batch_size
         self.num_partitions = num_partitions
         self.workers_count = workers_count
 
     def _prepare_dataframe(self, df):
         """Prepare the DataFrame for training by ensuring correct types and repartitioning"""
-        return (
-            df.withColumnRenamed(self.feature_col, "features")
-            .withColumnRenamed(self.label_col, "label")
-            .select(
-                F.col("features").cast("array<float>").alias("features"),
-                F.col("label").cast("array<float>").alias("label"),
-                F.col("species_index"),
-            )
-            .repartition(self.num_partitions)
-        )
+
+        @F.udf("array<boolean>")
+        def sigmoid_udf(x):
+            z = 1 / (1 + np.exp(-np.array(x)))
+            return (z > 0.5).tolist()
+
+        return df.select(
+            F.col(self.feature_col).cast("array<float>").alias("features"),
+            sigmoid_udf(self.label_col).cast("array<short>").alias("label"),
+            *([F.col("species_index")] if self.species_label else []),
+        ).repartition(self.num_partitions)
 
     def _train_valid_split(self, df):
         """
@@ -165,13 +169,11 @@ class PetastormDataModule(pl.LightningDataModule):
             warnings.simplefilter(action="ignore", category=FutureWarning)
 
             # UDF to retrieve species index
-            def species_index(name):
+            @F.udf("integer")
+            def species_index_udf(name):
                 species = Path(name).parent.name
                 species_idx = SPECIES.index(species)
                 return species_idx
-
-            # register the UDF
-            species_index_udf = F.udf(species_index, IntegerType())
 
             # read data
             birdnet_df = self.spark.read.parquet(self.input_birdnet_path).cache()
@@ -181,10 +183,11 @@ class PetastormDataModule(pl.LightningDataModule):
                 on=["name", "chunk_5s"],
                 how="inner",
             )
-            df_species = df.withColumn("species_index", species_index_udf("name"))
+            if self.species_label:
+                df = df.withColumn("species_index", species_index_udf("name"))
 
             # train/valid Split
-            self.train_data, self.valid_data = self._train_valid_split(df=df_species)
+            self.train_data, self.valid_data = self._train_valid_split(df=df)
             print(
                 f"\ntrain count: {self.train_data.count()}\n"
                 f"valid count: {self.valid_data.count()}\n",
@@ -195,7 +198,7 @@ class PetastormDataModule(pl.LightningDataModule):
             self.converter_valid = make_spark_converter(self.valid_data)
 
     def _dataloader(self, converter):
-        transform = v2.Compose([ToSparseTensor()])
+        # transform = v2.Compose([ToSparseTensor()])
         with warnings.catch_warnings():
             warnings.simplefilter(action="ignore", category=FutureWarning)
             with converter.make_torch_dataloader(
@@ -204,7 +207,8 @@ class PetastormDataModule(pl.LightningDataModule):
                 workers_count=self.workers_count,
             ) as dataloader:
                 for batch in dataloader:
-                    yield transform(batch)
+                    yield batch
+        torch.cuda.empty_cache()
 
     def train_dataloader(self):
         for batch in self._dataloader(self.converter_train):

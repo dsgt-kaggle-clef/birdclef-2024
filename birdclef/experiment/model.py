@@ -1,3 +1,5 @@
+import warnings
+
 import lightning as pl
 import torch
 from torch import nn
@@ -5,15 +7,11 @@ from torchmetrics.classification import MultilabelAUROC, MultilabelF1Score
 
 from birdclef.torch.losses import AsymmetricLossOptimized, ROCStarLoss, SigmoidF1
 
-
-class LossFunctions:
-    def get_hyperparameter_config(self):
-        loss_params = {
-            "bce": nn.BCEWithLogitsLoss,
-            "asl": AsymmetricLossOptimized,
-            "sigmoidf1": SigmoidF1,
-        }
-        return loss_params
+LOSS_PARAMS = {
+    "bce": nn.BCEWithLogitsLoss,
+    "asl": AsymmetricLossOptimized,
+    "sigmoidf1": SigmoidF1,
+}
 
 
 class LinearClassifier(pl.LightningModule):
@@ -24,6 +22,7 @@ class LinearClassifier(pl.LightningModule):
         loss: str = "bce",
         hp_kwargs: dict = {},
         species_label: bool = False,
+        should_threshold: bool = True,
         **kwargs,
     ):
         super().__init__()
@@ -32,10 +31,10 @@ class LinearClassifier(pl.LightningModule):
         self.hp_kwargs = hp_kwargs
         self.species_label = species_label
         self.learning_rate = 0.002
+        self.should_threshold = should_threshold
+
         self.save_hyperparameters()  # Saves hyperparams in the checkpoints
-        loss_fn = LossFunctions()
-        loss_params = loss_fn.get_hyperparameter_config()
-        self.loss = loss_params[loss](**hp_kwargs)
+        self.loss = LOSS_PARAMS[loss](**hp_kwargs)
         self.model = nn.Linear(num_features, num_labels)
         self.f1_score = MultilabelF1Score(num_labels=num_labels, average="macro")
         self.auroc_score = MultilabelAUROC(num_labels=num_labels, average="weighted")
@@ -48,45 +47,40 @@ class LinearClassifier(pl.LightningModule):
         return optimizer
 
     def _run_step(self, batch, batch_idx, step_name):
-        x, y, spidx = (
-            batch["features"],
-            batch["label"].to_dense(),
-            batch["species_index"].to_dense(),
-        )
-        logits = self(x)
         # sigmoid the label and apply a threshold
-        y_sigmoid = torch.sigmoid(y)
-        y_threshold = (y_sigmoid > 0.5).float()
-        label = y_threshold
+        logit = batch["label"]
+        y_threshold = (
+            (torch.sigmoid(logit.to_dense()) > 0.5) if self.should_threshold else logit
+        )
 
         if self.species_label:
             # compute z: row-wise sum of elements in y, cast as boolean
-            z = y_threshold.sum(dim=1, keepdim=True) > 0
-            indicator = z.float()  # convert boolean tensor to float
+            indicator_call = y_threshold.sum(dim=1, keepdim=True) > 0
             # compute s: one-hot encoded species matrix (NxK)
-            species_matrix = torch.zeros_like(logits)
-            spidx = spidx.to(torch.int64)
-            species_matrix = species_matrix.scatter(1, spidx.unsqueeze(1), 1.0)
+            indicator_species = torch.zeros_like(y_threshold, dtype=torch.bool).scatter(
+                1, batch["species_index"].to(torch.int64).unsqueeze(1), 1
+            )
             # compute r: r = y + (s * z)
             # multiply the indicator by the species matrix and then add it to the original
-            r = y_threshold + (species_matrix * indicator)
             # update logits for the loss computation
-            label = torch.logical_or(label, r).float()
+            y_threshold = torch.logical_or(
+                y_threshold,
+                torch.logical_and(indicator_call, indicator_species),
+            )
 
-        loss = self.loss(logits, label)
-        self.log(f"{step_name}_loss", loss, prog_bar=True)
-        self.log(
-            f"{step_name}_f1",
-            self.f1_score(logits, label),
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"{step_name}_auroc",
-            self.auroc_score(logits, label.to(torch.long)),
-            on_step=False,
-            on_epoch=True,
-        )
+        label = y_threshold.to(torch.float)
+        logits_pred = self(batch["features"])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter(action="ignore", category=UserWarning)
+
+            loss = self.loss(logits_pred, label)
+            f1_score = self.f1_score(logits_pred, label)
+            auroc_score = self.auroc_score(logits_pred, label.to(torch.int))
+
+            self.log(f"{step_name}_loss", loss, prog_bar=True)
+            self.log(f"{step_name}_f1", f1_score, on_step=False, on_epoch=True)
+            self.log(f"{step_name}_auroc", auroc_score, on_step=False, on_epoch=True)
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -120,7 +114,7 @@ class TwoLayerClassifier(LinearClassifier):
             nn.ReLU(inplace=True),
             nn.Linear(hidden_layer_size, num_labels),
         )
-        
+
 
 class LSTMClassifier(LinearClassifier):
     # TODO: in progress
@@ -137,14 +131,14 @@ class LSTMClassifier(LinearClassifier):
 
         self.lstm = nn.LSTM(self.seq_features, lstm_size)
         self.fc = nn.Linear(lstm_size, num_labels)
-        
+
     def forward(self, x):
         x = x.reshape(self.seq_len, -1, self.seq_features)
         x, _ = self.lstm(x)
         x = self.fc(x[-1])
         return x
-    
-    
+
+
 class ConvLSTMClassifier(LinearClassifier):
     # TODO: in progress
     def __init__(
@@ -160,7 +154,7 @@ class ConvLSTMClassifier(LinearClassifier):
         self.conv = nn.Conv1d(num_features, conv_size, conv_kernel)
         self.lstm = nn.LSTM(num_features, lstm_size)
         self.fc = nn.Linear(lstm_size, num_labels)
-        
+
     def forward(self, x):
         x = x.reshape(self.seq_len, -1, self.seq_features)
         x, _ = self.lstm(x)
